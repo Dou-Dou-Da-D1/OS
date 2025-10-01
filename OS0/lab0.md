@@ -34,39 +34,39 @@ echo 'export PATH="$PATH:$HOME/riscv/riscv64-unknown-elf-gcc-10.2.0-2020.12.0-x8
 source ~/.bashrc
 ```
 
-
-发现gcc已经安装好了
-
-下面安装qemu，失败了好多次。。。
+接下来我们安装模拟器 Qemu。先创建一个目录保存qemu。
 
 ```
-$ wget https://download.qemu.org/qemu-4.1.1.tar.xz
-$ tar xvJf qemu-4.1.1.tar.xz
-$ cd qemu-4.1.1
-$ ./configure --target-list=riscv32-softmmu,riscv64-softmmu
-$ make -j
-$ sudo make install
+mkdir -p ~/qemu
+cd ~/qemu
 ```
 
-![8b0d501cffbb7d73a71a76d325f2dae](E:\学学学\本科\大三上\操作系统\Lab\Lab0\report\Lab0.assets\8b0d501cffbb7d73a71a76d325f2dae.png)
+下载并解压 QEMU 源码。
 
-qemu安装成功！
+```
+wget https://download.qemu.org/qemu-4.1.1.tar.xz
+tar xvJf qemu-4.1.1.tar.xz
+```
 
-输入
+进入 QEMU 源码目录并开始编译。
 
-```bash
-$ qemu-system-riscv64 \
+```
+cd qemu-4.1.1
+./configure --target-list=riscv32-softmmu,riscv64-softmmu
+make -j$(nproc) 
+sudo make install
+```
+
+新版 Qemu 中内置了 OpenSBI 固件（firmware），它主要负责在操作系统运行前的硬件初始化和加载操作系统的功能。我们使用以下命令尝试运行一下：
+
+```
+qemu-system-riscv64 \
   --machine virt \
   --nographic \
   --bios default
 ```
+我们在终端上看到下面的输出，这就是 OpenSBI 的启动信息。
 
-![9f924854c6b7ae49e127f2fe60e0878](E:\学学学\本科\大三上\操作系统\Lab\Lab0\report\Lab0.assets\9f924854c6b7ae49e127f2fe60e0878.png)
+!(OpenSBI启动界面)(./images/1.png)
 
 说明环境配置成功！
-
-我们进行lab0的测试
-
-![image-20240912223156063](E:\学学学\本科\大三上\操作系统\Lab\Lab0\report\Lab0.assets\image-20240912223156063.png)
-
-成功！lab0就结束了
