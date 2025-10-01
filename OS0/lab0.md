@@ -67,6 +67,6 @@ qemu-system-riscv64 \
 ```
 我们在终端上看到下面的输出，这就是 OpenSBI 的启动信息。
 
-!(OpenSBI启动界面)(OS0/images/1.png)
+!(OpenSBI启动界面)(https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS0/images/1.png)
 
 说明环境配置成功！
