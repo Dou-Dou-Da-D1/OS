@@ -35,7 +35,6 @@ GDB 成功启动并连接后，显示以下信息，表明它停在了 RISC-V �
 
 1. `auipc t0, 0x0` 和 `addi a1, t0, 32`：
 
-    * 这两条指令组合起来，是 `la a1, some_label`（Load Address）伪指令的具体实现。
     * `auipc` (Add Upper Immediate to PC) 将当前 PC 值（`0x1000`）的高 20 位加载到 `t0`。
     * `addi` (Add Immediate) 将 t0 的值加上一个 12 位的立即数（这里是 32），并将结果存入 `a1`。
     * 其最终效果是计算出 MROM 代码中某个数据结构的物理地址，并将其存入 `a1` 寄存器，作为后续调用的参数。
