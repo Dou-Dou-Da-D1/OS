@@ -77,7 +77,7 @@ GDB 很快在`0x80200000`处中断，输入`x/1i $pc`查看指令，显示为`ke
 
 这一地址 (`0x80200000`) 与 `kern/init/entry.S` 的对应关系，是由链接脚本 `tools/kernel.ld` 决定的。该脚本明确指定了代码段 (.text) 的起始地址，并将 `entry.S` 文件中的代码放在了最前面，因此内核的第一条指令必然出现在这里。
 
-继续输入`c`,可以观察到QEMU窗口输出了启动信息：
+继续输入`c`,可以观察到QEMU窗口输出了启动信息，表明内核启动成功。
 
 ![启动信息](https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS1/images/8.png)
 
