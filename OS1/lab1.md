@@ -81,11 +81,13 @@ GDB 很快在`key_entry`处中断，输入`x/1i $pc`查看指令，显示为`ker
 
 1. **查看进入内核时的寄存器**：在执行任何内核指令前，我们先检查了 `pc` 和 `sp` 寄存器的状态。
     ![info](https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS1/images/9.png)
+    
     pc 寄存器确认了我们位于正确的内核入口。而 sp 寄存器的值 `0x8001bd80` 是一个较低的地址，这是 OpenSBI 在机器模式（M-mode）下使用的栈，内核在监督模式（S-mode）下不能直接使用它，因此必须初始化自己的栈。
 2. **单步执行栈初始化指令**：我们使用 `si` 命令执行了 `la sp, bootstacktop` 这条关键指令。
 3. **验证栈指针更新**：执行后，再次检查 `sp` 寄存器，发现其值已更新。
     ![验证栈指针更新](https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS1/images/10.png)
-    `sp` 的值变为了 `0x80202000`，这与我们在 `entry.S` 中定义的 `bootstacktop` 符号地址一致。这标志着内核的私有栈已经成功初始化。
+    
+    `sp` 的值变为了 `0x80203000`，这与我们在 `entry.S` 中定义的 `bootstacktop` 符号地址一致。这标志着内核的私有栈已经成功初始化。
 4. **检查新栈顶的内存**：最后，我们查看了新栈顶（`sp` 指向的位置）的内存内容。
     ![新栈项内存](https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS1/images/11.png)
     栈顶的内存全部为零，说明内核栈是一块干净的内存区域。这为后续调用 C 语言函数 `kern_init` 提供了安全的保障，因为 C 函数需要使用栈来存储局部变量、函数参数和返回地址。
