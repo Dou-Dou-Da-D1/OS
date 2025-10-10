@@ -53,13 +53,17 @@ MROM 代码执行完成后，会自动跳转到`0x80000000`（OpenSBI 固件的�
 
 1. 在 GDB 中输入`b *0x80000000`，给 OpenSBI 入口设断点，再输入`c`让程序执行，触发断点后表明已进入 SBI 固件。
     ![显示1](https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS1/images/2.png)
-2. 为了观察内核被加载到 `0x80200000` 的瞬间，我在进入 OpenSBI 后，输入`watch *0x80200000`设置内存观察点。
+
+    此时，CPU 运行在 RISC-V 的最高特权级 ——M 模式（Machine Mode）。OpenSBI 的核心任务就是在这个模式下，完成对 CPU、内存控制器、中断控制器等最核心硬件的初始化，为操作系统内核的运行（在较低的 S 模式下）准备好干净、规范的硬件环境。
+
+2. 完成硬件初始化后，OpenSBI 的下一个关键任务是将**操作系统内核加载到内存的指定位置**。根据我们的链接脚本 `tools/kernel.ld`，这个地址被设定为 `0x80200000`。
+    为了观察内核被加载到 `0x80200000` 的瞬间，我在进入 OpenSBI 后，输入`watch *0x80200000`设置内存观察点。
     然而，程序并没有因为观察点被触发而中断，而是一直运行。在等待一段时间后，我手动按下 Ctrl+C 中断了程序。
     ![内存观察点](https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS1/images/6.png)
 
     GDB 的输出显示，程序当时已经在执行内核 `kern_init` 函数中的无限循环。这表明，**内核早已开始运行，OpenSBI 已经完成了控制权的移交**。
 
-    为了验证这一点，我们检查 `0x80200000` 的内存内容，GDB 将该地址直接解析为 `kern_entry`，并且内存中存放的是内核的指令代码，而非零值。
+    为了验证这一点，我们检查 `0x80200000` 的内存内容，GDB 将该地址直接解析为 `kern_entry`，并且内存中存放的是内核的机器代码，而非零值。
 
 这一现象说明，我的内核镜像并非由 OpenSBI 在运行时加载。相反，它是由 QEMU 通过 `-device loader` 参数在启动时预加载到 `0x80200000` 的。因此，当我在 OpenSBI 启动后设置观察点时，`0x80200000` 的内容早已是内核代码，观察点自然不会被触发。
 
@@ -70,6 +74,12 @@ MROM 代码执行完成后，会自动跳转到`0x80000000`（OpenSBI 固件的�
 GDB 很快在`0x80200000`处中断，输入`x/1i $pc`查看指令，显示为`kern_entry`的第一条汇编指令（`auipc sp, 0x3`），证明 OpenSBI 已完成初始化，并将控制权移交内核。
 
 ![控制权](https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS1/images/7.png)
+
+这一地址 (`0x80200000`) 与 `kern/init/entry.S` 的对应关系，是由链接脚本 `tools/kernel.ld` 决定的。该脚本明确指定了代码段 (.text) 的起始地址，并将 `entry.S` 文件中的代码放在了最前面，因此内核的第一条指令必然出现在这里。
+
+继续输入`c`,可以观察到QEMU窗口输出了启动信息：
+
+![启动信息](https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS1/images/8.png)
 
 ## 实验知识点与 OS 原理的对应与理解
 
