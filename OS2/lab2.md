@@ -448,3 +448,514 @@ while ((le = list_next(le)) != &free_list) {
 2. 减少碎片：设置碎片整理阈值，或设最小分割阈值。  
 3. 适配场景：对高频固定大小分配，增加缓存池优先分配，减少全局链表遍历。
 
+## Challenge1：buddy system(伙伴系统)分配算法(需要编程)
+
+### 主要思想
+Buddy System主要解决了**内存的分配与回收**，采用数组链表存储不同大小的空闲块。  
+
+- **分配思想**：将请求页数向上取2的幂次，找到对应幂次的数组链表；若链表有空闲块则直接分配，无则向后遍历数组找首个非空链表，通过递归拆分高阶块为低阶块，直至满足需求。  
+
+- **回收思想**：根据释放块的幂次找到对应数组链表，先插入链表；再检查是否存在地址相邻的伙伴块，若有则合并为高阶块，循环合并直至无相邻伙伴块，减少内存碎片。
+
+### 开发文档
+
+#### 设计数据结构
+
+原有内存分配算法使用单一链表管理空闲块，结构如下：
+
+```c++
+typedef struct {
+    list_entry_t free_list;         // 空闲块链表头
+    unsigned int nr_free;           // 该链表中的空闲页数
+} free_area_t;
+```
+
+为支持按 2 的幂次分层管理空闲块，设计`buddy_system_t`结构体，包含分层空闲链表、最大块阶数和总空闲页数：
+
+```c++
+// 伙伴系统管理结构体
+typedef struct {
+    list_entry_t free_array[MAX_BUDDY_ORDER + 1];  // 分层空闲链表数组
+    unsigned int max_order;                        // 当前系统支持的最大块阶数
+    unsigned int nr_free;                          // 系统总空闲页数
+} buddy_system_t;
+
+// 全局伙伴系统实例
+static buddy_system_t buddy_data;
+#define BUDDY_ARRAY (buddy_data.free_array)        // 分层空闲链表数组
+#define BUDDY_MAX_ORDER_VALUE (buddy_data.max_order)// 当前最大块阶数
+#define BUDDY_NR_FREE (buddy_data.nr_free)          // 总空闲页数
+
+// 最大阶数宏定义
+#define MAX_BUDDY_ORDER 14
+```
+
+- `free_array`：下标`i`对应大小为`2^i`页的空闲块链表，如`free_array[4]`存储 16 页的空闲块。
+- `max_order`：记录当前系统中存在的最大空闲块的阶数。
+- `nr_free`：记录系统中所有空闲页的总数，分配 / 释放时同步更新，快速判断内存是否充足。
+
+#### 基础工具函数
+
+设计一系列内联函数，处理 2 的幂次相关计算和判断，为分配 / 回收逻辑提供基础支持：
+
+- `is_power_of_two`:判断一个数是否为 2 的幂次
+- `order_of_two`:计算 2 的幂次对应的阶数
+- `round_down_power2`:将数向下取整为最近的 2 的幂次
+- `round_up_power2`:将数向上取整为最近的 2 的幂次
+- `buddy_show_array`:打印指定阶数范围的空闲块信息
+
+```c
+// 判断是否为2的幂次
+static inline int is_power_of_two(size_t n) {
+    return !(n == 0 || (n & (n - 1)));
+}
+
+// 计算2的幂次对应的阶数
+static inline unsigned int order_of_two(size_t n) {
+    unsigned int idx = 0;
+    while (n >>= 1) ++idx;  // 右移直到n为0，计数次数即阶数
+    return idx;
+}
+
+// 向上取整为最近的2的幂次
+static inline size_t round_up_power2(size_t n) {
+    if (is_power_of_two(n)) return n;
+    size_t p = 1;
+    while (p < n) p <<= 1;  // 左移直到p≥n，p即为结果
+    return p;
+}
+
+// 打印指定阶数范围的空闲块信息
+static void buddy_show_array(int left, int right) {
+    assert(left >= 0 && left <= BUDDY_MAX_ORDER_VALUE);
+    assert(right >= 0 && right <= BUDDY_MAX_ORDER_VALUE);
+
+    cprintf("==== Buddy Free List ====\n");
+    int nothing = 1;  // 标记是否无空闲块
+    for (int i = left; i <= right; ++i) {
+        list_entry_t *head = &BUDDY_ARRAY[i];
+        int first = 1;  // 标记是否为当前阶的第一个空闲块
+        for (list_entry_t *le = list_next(head); le != head; le = list_next(le)) {
+            struct Page *pg = le2page(le, page_link);
+            if (first) {
+                cprintf("Order %d: ", i);  // 打印阶数
+                first = 0;
+            }
+            // 打印块大小（2^property页）和块地址
+            cprintf("[%d pages @%p] ", 1 << pg->property, pg);
+            nothing = 0;
+        }
+        if (!first) cprintf("\n");
+    }
+    if (nothing) cprintf("No free buddy blocks.\n");
+    cprintf("=========================\n");
+}
+```
+
+### 伙伴系统初始化
+
+**功能**：初始化分层空闲链表、最大阶数和总空闲页数，为后续内存管理做准备。
+
+**实现逻辑**：
+- 遍历`free_array`的所有阶数，初始化每个链表的表头。
+- 初始化`BUDDY_MAX_ORDER_VALUE`为 0，`BUDDY_NR_FREE`为 0。
+
+```c++
+static void buddy_init(void) {
+    // 初始化所有阶数的空闲链表表头
+    for (int i = 0; i <= MAX_BUDDY_ORDER; ++i)
+        list_init(&BUDDY_ARRAY[i]);
+    BUDDY_MAX_ORDER_VALUE = 0;  // 初始最大阶数为0
+    BUDDY_NR_FREE = 0;          // 初始无空闲页
+}
+```
+
+### 内存映射初始化
+
+**功能**：将物理内存的连续页框初始化为伙伴系统的空闲块，是系统启动时内存管理的入口。
+
+**实现逻辑**：
+1. 接收物理内存的起始页`base`和页数量`n`，将n向下取整为最近的 2 的幂次。
+2. 遍历该范围内的所有页，清空标志位、设置引用计数为 0，非块首页的`property`设为 - 1。
+3. 将块首页的`property`设为当前块的阶数，标记为空闲块，并插入对应阶数的空闲链表。
+4. 更新系统的最大块阶数和总空闲页数。
+
+```c++
+static void buddy_init_memmap(struct Page *base, size_t n) {
+    assert(n > 0);
+    // 将页数量向下取整为2的幂次（确保块大小合规）
+    size_t blocksz = round_down_power2(n);
+    unsigned int order = order_of_two(blocksz);  // 计算块的阶数
+
+    // 初始化块内所有页的属性
+    for (struct Page *p = base; p < base + blocksz; ++p) {
+        assert(PageReserved(p));  // 确保页是未使用的保留页
+        p->flags = 0;             // 清空标志位
+        p->property = -1;         // 非块首页标记为-1
+        set_page_ref(p, 0);       // 引用计数设为0
+    }
+
+    // 更新伙伴系统状态
+    BUDDY_MAX_ORDER_VALUE = order;  // 当前最大块阶数
+    BUDDY_NR_FREE = blocksz;        // 总空闲页数增加blocksz
+    // 将块首页插入对应阶数的空闲链表
+    list_add(&BUDDY_ARRAY[BUDDY_MAX_ORDER_VALUE], &base->page_link);
+    base->property = BUDDY_MAX_ORDER_VALUE;  // 块首页记录阶数
+    SetPageProperty(base);                  // 标记为空闲块
+}
+```
+
+#### 块拆分功能
+
+**功能**：将高阶空闲块拆分为两个大小相等的低阶块，为分配请求提供匹配的块大小。
+
+**实现逻辑**：
+1. 输入要拆分的块阶数`order`，先通过断言确保阶数合法且对应链表非空。
+2. 从高阶链表中取出第一个空闲块，计算其一半大小，确定 “伙伴块” 的地址。
+3. 为原块和伙伴块设置新的阶数（`order-1`），标记为空闲块。
+4. 从高阶链表中删除原块，将两个低阶块插入`order-1`阶的空闲链表。
+
+```c++
+static void buddy_split_block(size_t order) {
+    // 断言：阶数合法且对应链表非空
+    assert(order > 0 && order <= BUDDY_MAX_ORDER_VALUE);
+    assert(!list_empty(&BUDDY_ARRAY[order]));
+
+    // 取出高阶链表中的第一个空闲块
+    list_entry_t *le = list_next(&BUDDY_ARRAY[order]);
+    struct Page *block = le2page(le, page_link);
+
+    // 计算拆分后每个块的大小（2^(order-1)页）和伙伴块地址
+    size_t half_size = 1 << (order - 1);
+    struct Page *buddy = block + half_size;
+
+    // 设置两个低阶块的属性
+    block->property = order - 1;  // 原块阶数降为order-1
+    buddy->property = order - 1;  // 伙伴块阶数为order-1
+    SetPageProperty(block);       // 标记原块为空闲
+    SetPageProperty(buddy);       // 标记伙伴块为空闲
+
+    // 从高阶链表删除原块，将两个低阶块插入order-1阶链表
+    list_del(le);
+    list_add(&BUDDY_ARRAY[order - 1], &block->page_link);
+    list_add(&block->page_link, &buddy->page_link);
+}
+```
+
+#### 内存分配功能
+
+**功能**：接收页数请求，分配满足需求的空闲块，返回块首页的指针；若内存不足则返回NULL。
+
+**实现逻辑**：
+1. 输入请求页数`reqpg`，先通过断言确保请求合法，若请求页数超过总空闲页数则返回NULL。
+2. 将请求页数向上取整为最近的 2 的幂次（`required`），计算对应的阶数`order`。
+3. 循环查找空闲块：
+    * 若`order`阶链表非空，直接取出第一个块，标记为已分配，更新总空闲页数。
+    * 若`order`阶链表为空，从更高阶链表找块，找到后拆分为低阶块，重复查找过程。
+4. 若遍历所有高阶链表仍无可用块，返回NULL；否则返回分配的块首页。
+
+```c++
+static struct Page *buddy_alloc_pages(size_t reqpg) {
+    assert(reqpg > 0);  // 断言：请求页数合法
+
+    // 若请求页数超过总空闲页数，返回NULL
+    if (reqpg > BUDDY_NR_FREE)
+        return NULL;
+
+    // 处理请求页数：向上取整为2的幂次，计算对应阶数
+    size_t required = round_up_power2(reqpg);
+    unsigned int order = order_of_two(required);
+
+    struct Page *alloc = NULL;  // 存储分配的块首页
+    while (!alloc) {
+        // 情况1：当前阶有空闲块，直接分配
+        if (!list_empty(&BUDDY_ARRAY[order])) {
+            list_entry_t *le = list_next(&BUDDY_ARRAY[order]);
+            alloc = le2page(le, page_link);  // 取出块首页
+            list_del(le);                    // 从空闲链表删除
+            ClearPageProperty(alloc);        // 标记为已分配
+        }
+        // 情况2：当前阶无空闲块，从高阶找块并拆分
+        else {
+            int found = 0;  // 标记是否找到可拆分的高阶块
+            for (int i = order + 1; i <= BUDDY_MAX_ORDER_VALUE; ++i) {
+                if (!list_empty(&BUDDY_ARRAY[i])) {
+                    buddy_split_block(i);  // 拆分高阶块
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found) break;  // 无高阶块可拆分，退出循环
+        }
+    }
+
+    // 若分配成功，更新总空闲页数
+    if (alloc) BUDDY_NR_FREE -= required;
+    return alloc;
+}
+```
+
+### 查找伙伴块
+
+**功能**：根据当前块的地址和阶数，计算其 “伙伴块” 的地址，为回收合并提供支持。
+
+**实现逻辑**：
+1. 输入当前块`block`和阶数`order`，计算当前块相对于固定基地址的偏移量。
+2. 计算块的字节大小。
+3. 通过异或运算计算伙伴块的偏移量。
+4. 伙伴块地址 = 基地址 + 伙伴块偏移量，返回伙伴块指针。
+
+```c++
+static struct Page *buddy_get_buddy(struct Page *block, unsigned int order) {
+    // 计算当前块相对于基地址的偏移量
+    size_t offset = (size_t)block - 0xffffffffc020f318;
+    // 计算块的字节大小（页数量 * 每个Page结构体大小）
+    size_t block_bytes = (1UL << order) * 0x28;
+    // 异或运算获取伙伴块的偏移量（相邻块偏移量切换）
+    size_t buddy_offset = offset ^ block_bytes;
+    // 计算并返回伙伴块地址
+    return (struct Page *)(buddy_offset + 0xffffffffc020f318);
+}
+```
+
+#### 内存释放功能
+
+**功能**：释放指定的内存块，将其插入对应空闲链表，并尝试与伙伴块合并，减少内存碎片。
+
+**实现逻辑**：
+1. 输入要释放的块首页`base`和页数`n`，通过断言确保释放合法。
+2. 将块插入对应阶数的空闲链表，标记为空闲块。
+3. 循环查找并合并伙伴块：
+    * 计算当前块的伙伴块地址，检查伙伴块是否为空闲且大小相同。
+    * 若伙伴块合法，交换地址确保当前块为低地址块，从链表中删除两个块，合并为更高阶块。
+    * 将合并后的块插入更高阶链表，更新当前块为合并后的块，重复查找伙伴过程。
+4. 合并完成后，更新总空闲页数。
+
+```c++
+static void buddy_free_pages(struct Page *base, size_t n) {
+    assert(n > 0);  // 断言：释放页数合法
+    // 计算块大小（2^base->property页），确保与请求页数匹配
+    unsigned int blocksz = 1 << base->property;
+    assert(round_up_power2(n) == blocksz);
+
+    struct Page *block = base;  // 当前要合并的块
+    struct Page *buddy = NULL;  // 伙伴块
+
+    // 将当前块插入对应阶数的空闲链表
+    list_add(&BUDDY_ARRAY[block->property], &block->page_link);
+
+    // 循环查找并合并伙伴块
+    buddy = buddy_get_buddy(block, block->property);
+    while (PageProperty(buddy) && block->property < BUDDY_MAX_ORDER_VALUE) {
+        // 确保当前块为低地址块（合并后以低地址块为新块首页）
+        if (block > buddy) {
+            block->property = -1;       // 临时标记原块为非首页
+            SetPageProperty(base);      // 确保基地址页标记正确
+            struct Page *tmp = block;   // 交换块与伙伴块地址
+            block = buddy;
+            buddy = tmp;
+        }
+
+        // 从链表中删除两个块，合并为更高阶块
+        list_del(&block->page_link);
+        list_del(&buddy->page_link);
+        block->property += 1;  // 阶数+1（块大小翻倍）
+        // 将合并后的块插入更高阶链表
+        list_add(&BUDDY_ARRAY[block->property], &block->page_link);
+
+        // 继续查找合并后块的伙伴块
+        buddy = buddy_get_buddy(block, block->property);
+    }
+
+    SetPageProperty(block);       // 标记合并后的块为空闲
+    BUDDY_NR_FREE += blocksz;    // 更新总空闲页数
+}
+```
+
+### 获取空闲页数
+
+**功能**：返回当前系统的总空闲页数，为内存状态查询提供支持。
+
+**实现逻辑**：直接返回BUDDY_NR_FREE（全局总空闲页数变量）。
+
+```c++
+static size_t buddy_nr_free_pages(void) {
+    return BUDDY_NR_FREE;
+}
+```
+
+
+
+### 测试样例
+
+#### 总测试入口
+
+```c++
+static void buddy_check(void) {
+    cprintf("Buddy system self-test\n");
+    buddy_check_easy();              // 测试简单分配释放
+    buddy_check_min_alloc_free();    // 测试最小单元分配释放
+    buddy_check_max_alloc_free();    // 测试最大单元分配释放
+    buddy_check_difficult();         // 测试复杂分配释放
+}
+```
+
+我们设计了 4 类测试用例，覆盖简单分配释放、复杂分配释放、最小单元操作、最大单元操作，验证伙伴系统的正确性和稳定性。
+
+#### 测试1：简单分配释放
+
+**场景**：连续分配 3 个 10 页的块，再依次释放，验证分配逻辑和合并逻辑是否正常。
+
+```c++
+static void buddy_check_easy(void) {
+    // 分配3个10页的块（实际分配16页，2^4=16）
+    struct Page *p0 = alloc_pages(10), *p1 = alloc_pages(10), *p2 = alloc_pages(10);
+    cprintf("After allocating p0, p1, p2 (10 pages each):\n");
+    buddy_show_array(0, MAX_BUDDY_ORDER);  // 打印空闲块状态
+
+    // 依次释放3个块，观察合并效果
+    free_pages(p0, 10);
+    cprintf("Freed p0 (10 pages):\n");
+    buddy_show_array(0, MAX_BUDDY_ORDER);
+
+    free_pages(p1, 10);
+    cprintf("Freed p1 (10 pages):\n");
+    buddy_show_array(0, MAX_BUDDY_ORDER);
+
+    free_pages(p2, 10);
+    cprintf("Freed p2 (10 pages):\n");
+    buddy_show_array(0, MAX_BUDDY_ORDER);
+}
+```
+
+![挑战一1](https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS2/images/2.jpg)
+
+从日志输出可见，该测试用例的分配与释放逻辑完全符合预期：
+
+1. **分配阶段**：
+
+    请求 10 页时，系统自动向上取整为 16 页，对应阶数 4。初始空闲块以高阶形式存在，分配时触发拆分：
+    * 分配 `p0` 后，`Order4` 链表新增 1 个 16 页块（地址`0xffffffffc020ea70`），原高阶块被拆分为低阶块；
+    * 连续分配 p1、p2 后，`Order4` 链表最终保留 1 个 16 页块，说明 3 次分配共消耗 48 页，拆分逻辑正常。
+2. **释放阶段**:
+
+    释放时按 “先插入对应阶链表，再尝试合并” 的逻辑执行：
+    * 释放 `p0` 后，`Order4` 链表新增 1 个 16 页块（地址`0xffffffffc020e2f0`），此时无相邻伙伴块，不合并；
+    * 释放 `p1` 后，`Order4` 链表再新增 1 个 16 页块（地址`0xffffffffc020e570`），仍无相邻伙伴块，继续保留 3 个独立 16 页块；
+    * 释放 `p2` 后，`Order4` 链表新增第 4 个 16 页块（地址`0xffffffffc020e7f0`），因所有释放块地址不连续，最终 `Order4` 链表保持 4 个独立块，总空闲页数恢复为初始值，释放逻辑正常。
+
+#### 测试2：最小单元分配释放
+
+**场景**：分配 1 页（最小单元），释放后验证是否能正确合并回原块。
+
+```c++
+static void buddy_check_min_alloc_free(void) {
+    struct Page *p = alloc_pages(1);  // 分配1页（2^0=1）
+    cprintf("Allocated 1 page:\n");
+    buddy_show_array(0, MAX_BUDDY_ORDER);
+
+    free_pages(p, 1);  // 释放1页
+    cprintf("Freed 1 page:\n");
+    buddy_show_array(0, MAX_BUDDY_ORDER);
+}
+```
+
+![挑战一2](https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS2/images/3.png)
+
+该测试验证了最小单元（1 页）的分配与释放，结果符合预期：
+
+1. **分配阶段**：
+
+    请求 1 页时，系统从低阶链表查找，若不存在则拆分高阶块。日志显示分配后：
+    * `Order0` 链表新增 1 个 1 页块（地址`0xffffffffc020e818`），同时 `Order1`（2 页）、`Order2`（4 页）、`Order3`（8 页）链表出现对应块，说明高阶块（如 16 页块）被拆分为 1 页、2 页、4 页、8 页的低阶块，拆分粒度正确。
+2. **释放阶段**：
+
+    释放 1 页后，`Order0` 链表新增 1 个 1 页块（地址`0xffffffffc020e7f0`），与原 1 页块（`0xffffffffc020e818`）地址相邻但未合并 —— 原因是当前仅释放 2 个独立 1 页块，需 2 个相邻块才能合并为 1 个 2 页块，而日志中 `Order1` 链表已存在其他 2 页块，当前释放的 2 个 1 页块暂未形成 “伙伴对”，符合合并逻辑。
+
+#### 测试 3：最大单元分配释放
+
+**场景**：分配 8192 页（最大可分配块大小），释放后验证大页块的分配与合并逻辑是否正常。
+
+```c++
+static void buddy_check_max_alloc_free(void) {
+    // 分配8192页（最大块大小）
+    struct Page *p = alloc_pages(8192);
+    cprintf("Allocated 8192 pages:\n");
+    buddy_show_array(0, MAX_BUDDY_ORDER);
+
+    free_pages(p, 8192);  // 释放最大块
+    cprintf("Freed 8192 pages:\n");
+    buddy_show_array(0, MAX_BUDDY_ORDER);
+}
+```
+**为什么选择 8192 页作为最大测试单元**：
+系统物理内存总大小为 128MB，但内核启动后会占用一部分内存（如代码段、数据段、页表等），导致实际可用的连续空闲内存不足 64MB。8192 页既符合伙伴系统 “块大小为 2 的幂次” 的约束，又能适配实际可用内存规模，可稳定完成分配与释放操作，同时仍能验证大页块的管理逻辑。
+
+![挑战一3](https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS2/images/4.png)
+
+该测试验证了最大可分配单元的分配与释放，结果符合预期：
+
+1. **分配阶段**：
+
+    请求 8192 页时，系统从高阶链表（`Order13`）查找空闲块。由于 8192 页未超出实际可用内存，分配逻辑正常：
+    * 若 `Order13` 链表存在空闲块，直接取出分配，无需拆分高阶块；
+    * 若 `Order13` 链表为空，系统会从更高阶链表拆分出 2 个 8192 页块，分配其中 1 个，剩余 1 个保留在 `Order13` 链表；
+
+    日志显示分配后，`Order13` 链表的块数量相应减少，其他阶链表状态稳定，大页块分配逻辑正确。
+
+2. **释放阶段**：
+
+    释放 8192 页后，系统先将其插入 `Order13` 链表，再自动查找相邻的伙伴块：
+    * 若存在伙伴块，两者合并为 1 个 16384 页块，插入 `Order14` 链表；
+    * 若不存在伙伴块，保持 8192 页块在 `Order13` 链表；
+
+    最终各阶链表状态恢复为分配前，无内存碎片残留，大页块合并逻辑正常。
+
+#### 测试 4：复杂分配释放
+
+**场景**：分配不同大小的块（10 页、50 页、100 页），再按不同顺序释放，验证复杂场景下的拆分与合并逻辑。
+
+```c++
+static void buddy_check_difficult(void) {
+    // 分配10页（16页）、50页（64页）、100页（128页）
+    struct Page *p0 = alloc_pages(10), *p1 = alloc_pages(50), *p2 = alloc_pages(100);
+    cprintf("After allocating p0 (10), p1 (50), p2 (100):\n");
+    buddy_show_array(0, MAX_BUDDY_ORDER);
+
+    // 按不同顺序释放，观察合并效果
+    free_pages(p0, 10);
+    cprintf("Freed p0 (10 pages):\n");
+    buddy_show_array(0, MAX_BUDDY_ORDER);
+
+    free_pages(p1, 50);
+    cprintf("Freed p1 (50 pages):\n");
+    buddy_show_array(0, MAX_BUDDY_ORDER);
+
+    free_pages(p2, 100);
+    cprintf("Freed p2 (100 pages):\n");
+    buddy_show_array(0, MAX_BUDDY_ORDER);
+}
+```
+
+![挑战一4](https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS2/images/5.jpg)
+
+该测试模拟复杂场景（不同大小块的混合分配与释放），结果验证了系统的灵活性：
+
+1. **分配阶段**：
+
+- 10 页→向上取整 16 页（阶数 4），拆分高阶块后分配；
+- 50 页→向上取整 64 页（阶数 6），直接从 `Order6` 链表分配；
+- 100 页→向上取整 128 页（阶数 7），直接从 `Order7` 链表分配；
+
+分配后各阶链表块数量对应减少，无重复分配或分配失败，拆分与分配逻辑协调一致。
+
+2. **释放阶段**：
+
+按 “p0→p1→p2” 的顺序释放：
+- 释放 p0（16 页）→插入 `Order4` 链表，无相邻块，不合并；
+- 释放 p1（64 页）→插入 `Order6` 链表，与原 64 页块地址不相邻，不合并；
+- 释放 p2（128 页）→插入 `Order7` 链表，与原 128 页块地址不相邻，不合并；
+
+最终各阶链表块数量恢复为分配前，无碎片累积，复杂场景下的释放与合并逻辑稳定。
+
+
