@@ -959,3 +959,4 @@ static void buddy_check_difficult(void) {
 最终各阶链表块数量恢复为分配前，无碎片累积，复杂场景下的释放与合并逻辑稳定。
 
 
+
