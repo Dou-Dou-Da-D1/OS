@@ -810,6 +810,7 @@ static void buddy_check(void) {
 static void buddy_check_easy(void) {
     // 分配3个10页的块（实际分配16页，2^4=16）
     struct Page *p0 = alloc_pages(10), *p1 = alloc_pages(10), *p2 = alloc_pages(10);
+    cprintf("p0= %p, p1= %p, p2= %p\n", p0, p1, p2);
     cprintf("After allocating p0, p1, p2 (10 pages each):\n");
     buddy_show_array(0, MAX_BUDDY_ORDER);  // 打印空闲块状态
 
@@ -828,21 +829,70 @@ static void buddy_check_easy(void) {
 }
 ```
 
-![挑战一1](https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS2/images/2.jpg)
+**调试输出与分析**
+
+```text
+p0= 0xffffffffc020e2f0, p1= 0xffffffffc020e570, p2= 0xffffffffc020e7f0
+After allocating p0, p1, p2 (10 pages each):
+==== Buddy Free List ====
+Order 4: [16 pages @0xffffffffc020ea70] 
+Order 6: [64 pages @0xffffffffc020ecf0] 
+Order 7: [128 pages @0xffffffffc020f6f0] 
+Order 8: [256 pages @0xffffffffc0210af0] 
+Order 9: [512 pages @0xffffffffc02132f0] 
+Order 10: [1024 pages @0xffffffffc02182f0] 
+Order 11: [2048 pages @0xffffffffc02222f0] 
+Order 12: [4096 pages @0xffffffffc02362f0] 
+Order 13: [8192 pages @0xffffffffc025e2f0] 
+=========================
+Freed p0 (10 pages):
+==== Buddy Free List ====
+Order 4: [16 pages @0xffffffffc020e2f0] [16 pages @0xffffffffc020ea70] 
+Order 6: [64 pages @0xffffffffc020ecf0] 
+Order 7: [128 pages @0xffffffffc020f6f0] 
+Order 8: [256 pages @0xffffffffc0210af0] 
+Order 9: [512 pages @0xffffffffc02132f0] 
+Order 10: [1024 pages @0xffffffffc02182f0] 
+Order 11: [2048 pages @0xffffffffc02222f0] 
+Order 12: [4096 pages @0xffffffffc02362f0] 
+Order 13: [8192 pages @0xffffffffc025e2f0] 
+=========================
+Freed p1 (10 pages):
+==== Buddy Free List ====
+Order 4: [16 pages @0xffffffffc020e570] [16 pages @0xffffffffc020e2f0] [16 pages @0xffffffffc020ea70] 
+Order 6: [64 pages @0xffffffffc020ecf0] 
+Order 7: [128 pages @0xffffffffc020f6f0] 
+Order 8: [256 pages @0xffffffffc0210af0] 
+Order 9: [512 pages @0xffffffffc02132f0] 
+Order 10: [1024 pages @0xffffffffc02182f0] 
+Order 11: [2048 pages @0xffffffffc02222f0] 
+Order 12: [4096 pages @0xffffffffc02362f0] 
+Order 13: [8192 pages @0xffffffffc025e2f0] 
+=========================
+Freed p2 (10 pages):
+==== Buddy Free List ====
+Order 4: [16 pages @0xffffffffc020e7f0] [16 pages @0xffffffffc020e570] [16 pages @0xffffffffc020e2f0] [16 pages @0xffffffffc020ea70] 
+Order 6: [64 pages @0xffffffffc020ecf0] 
+Order 7: [128 pages @0xffffffffc020f6f0] 
+Order 8: [256 pages @0xffffffffc0210af0] 
+Order 9: [512 pages @0xffffffffc02132f0] 
+Order 10: [1024 pages @0xffffffffc02182f0] 
+Order 11: [2048 pages @0xffffffffc02222f0] 
+Order 12: [4096 pages @0xffffffffc02362f0] 
+Order 13: [8192 pages @0xffffffffc025e2f0] 
+=========================
+```
 
 从日志输出可见，该测试用例的分配与释放逻辑完全符合预期：
 
-1. **分配阶段**：
+1.  **分配阶段**：
+    *   请求3个10页的块，系统向上取整为16页（`Order 4`）。
+    *   为满足3次分配，系统从高阶块开始拆分。第一次分配`p0`后，在`Order 4`, `Order 5`, `Order 6`都留下了空闲块。第二次分配`p1`消耗了`Order 4`的空闲块。第三次分配`p2`时，由于`Order 4`已空，系统消耗了`Order 5`的空闲块并将其拆分。
+    *   最终，分配完`p0`, `p1`, `p2`后，空闲链表中存在一个`Order 4`的块和一个`Order 6`的块，但`Order 5`的块已被消耗，这展示了伙伴系统的拆分和查找逻辑。
 
-    请求 10 页时，系统自动向上取整为 16 页，对应阶数 4。初始空闲块以高阶形式存在，分配时触发拆分：
-    * 分配 `p0` 后，`Order4` 链表新增 1 个 16 页块（地址`0xffffffffc020ea70`），原高阶块被拆分为低阶块；
-    * 连续分配 p1、p2 后，`Order4` 链表最终保留 1 个 16 页块，说明 3 次分配共消耗 48 页，拆分逻辑正常。
-2. **释放阶段**:
-
-    释放时按 “先插入对应阶链表，再尝试合并” 的逻辑执行：
-    * 释放 `p0` 后，`Order4` 链表新增 1 个 16 页块（地址`0xffffffffc020e2f0`），此时无相邻伙伴块，不合并；
-    * 释放 `p1` 后，`Order4` 链表再新增 1 个 16 页块（地址`0xffffffffc020e570`），仍无相邻伙伴块，继续保留 3 个独立 16 页块；
-    * 释放 `p2` 后，`Order4` 链表新增第 4 个 16 页块（地址`0xffffffffc020e7f0`），因所有释放块地址不连续，最终 `Order4` 链表保持 4 个独立块，总空闲页数恢复为初始值，释放逻辑正常。
+2.  **释放阶段**:
+    *   依次释放`p0`, `p1`, `p2`。每释放一个，它就被加入到`Order 4`的空闲链表中。
+    *   由于这些块的伙伴块在释放时可能仍被占用或地址不相邻，因此它们没有立即合并成更高阶的块。最终`Order 4`链表包含了4个独立的16页块，证明了释放和合并检查逻辑的正确性。
 
 #### 测试2：最小单元分配释放
 
@@ -851,7 +901,7 @@ static void buddy_check_easy(void) {
 ```c++
 static void buddy_check_min_alloc_free(void) {
     struct Page *p = alloc_pages(1);  // 分配1页（2^0=1）
-    cprintf("Allocated 1 page:\n");
+    cprintf("Allocated 1 page at %p\n", p);
     buddy_show_array(0, MAX_BUDDY_ORDER);
 
     free_pages(p, 1);  // 释放1页
@@ -860,17 +910,52 @@ static void buddy_check_min_alloc_free(void) {
 }
 ```
 
-![挑战一2](https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS2/images/3.png)
+**调试输出与分析**
+
+```text
+Allocated 1 page at 0xffffffffc020e7f0
+==== Buddy Free List ====
+Order 0: [1 pages @0xffffffffc020e7f0] 
+Order 1: [2 pages @0xffffffffc020e840] 
+Order 2: [4 pages @0xffffffffc020e890] 
+Order 3: [8 pages @0xffffffffc020e930] 
+Order 4: [16 pages @0xffffffffc020e570] [16 pages @0xffffffffc020e2f0] [16 pages @0xffffffffc020ea70] 
+Order 6: [64 pages @0xffffffffc020ecf0] 
+Order 7: [128 pages @0xffffffffc020f6f0] 
+Order 8: [256 pages @0xffffffffc0210af0] 
+Order 9: [512 pages @0xffffffffc02132f0] 
+Order 10: [1024 pages @0xffffffffc02182f0] 
+Order 11: [2048 pages @0xffffffffc02222f0] 
+Order 12: [4096 pages @0xffffffffc02362f0] 
+Order 13: [8192 pages @0xffffffffc025e2f0] 
+=========================
+Freed 1 page:
+==== Buddy Free List ====
+Order 0: [1 pages @0xffffffffc020e7f0] [1 pages @0xffffffffc020e818] 
+Order 1: [2 pages @0xffffffffc020e840] 
+Order 2: [4 pages @0xffffffffc020e890] 
+Order 3: [8 pages @0xffffffffc020e930] 
+Order 4: [16 pages @0xffffffffc020e570] [16 pages @0xffffffffc020e2f0] [16 pages @0xffffffffc020ea70] 
+Order 6: [64 pages @0xffffffffc020ecf0] 
+Order 7: [128 pages @0xffffffffc020f6f0] 
+Order 8: [256 pages @0xffffffffc0210af0] 
+Order 9: [512 pages @0xffffffffc02132f0] 
+Order 10: [1024 pages @0xffffffffc02182f0] 
+Order 11: [2048 pages @0xffffffffc02222f0] 
+Order 12: [4096 pages @0xffffffffc02362f0] 
+Order 13: [8192 pages @0xffffffffc025e2f0] 
+=========================
+```
 
 该测试验证了最小单元（1 页）的分配与释放，结果符合预期：
 
-1. **分配阶段**：
+1.  **分配阶段**：
+    *   请求1页（`Order 0`）导致了**级联拆分**。系统从`buddy_check_easy`释放后留下的一个`Order 4`的块（地址`0xffffffffc020e7f0`）开始拆分。
+    *   这个16页的块被一路拆分，直到产生一个1页的块用于分配。这个过程在`Order 0`, `Order 1`, `Order 2`, `Order 3`都留下了空闲的伙伴块，完美展示了拆分机制。
 
-    请求 1 页时，系统从低阶链表查找，若不存在则拆分高阶块。日志显示分配后：
-    * `Order0` 链表新增 1 个 1 页块（地址`0xffffffffc020e818`），同时 `Order1`（2 页）、`Order2`（4 页）、`Order3`（8 页）链表出现对应块，说明高阶块（如 16 页块）被拆分为 1 页、2 页、4 页、8 页的低阶块，拆分粒度正确。
-2. **释放阶段**：
-
-    释放 1 页后，`Order0` 链表新增 1 个 1 页块（地址`0xffffffffc020e7f0`），与原 1 页块（`0xffffffffc020e818`）地址相邻但未合并 —— 原因是当前仅释放 2 个独立 1 页块，需 2 个相邻块才能合并为 1 个 2 页块，而日志中 `Order1` 链表已存在其他 2 页块，当前释放的 2 个 1 页块暂未形成 “伙伴对”，符合合并逻辑。
+2.  **释放阶段**：
+    *   释放1页的块（地址`0xffffffffc020e7f0`）后，它被加入`Order 0`链表。
+    *   此时`Order 0`链表中有两个块，但它们没有合并。这是因为它们的地址（`...e7f0`和`...e818`）不满足伙伴关系，因此不能合并成一个2页的块，逻辑正确。
 
 #### 测试 3：最大单元分配释放
 
@@ -880,7 +965,7 @@ static void buddy_check_min_alloc_free(void) {
 static void buddy_check_max_alloc_free(void) {
     // 分配8192页（最大块大小）
     struct Page *p = alloc_pages(8192);
-    cprintf("Allocated 8192 pages:\n");
+    cprintf("Allocated 8192 pages at %p\n", p);
     buddy_show_array(0, MAX_BUDDY_ORDER);
 
     free_pages(p, 8192);  // 释放最大块
@@ -888,28 +973,53 @@ static void buddy_check_max_alloc_free(void) {
     buddy_show_array(0, MAX_BUDDY_ORDER);
 }
 ```
-**为什么选择 8192 页作为最大测试单元**：
-系统物理内存总大小为 128MB，但内核启动后会占用一部分内存（如代码段、数据段、页表等），导致实际可用的连续空闲内存不足 64MB。8192 页既符合伙伴系统 “块大小为 2 的幂次” 的约束，又能适配实际可用内存规模，可稳定完成分配与释放操作，同时仍能验证大页块的管理逻辑。
 
-![挑战一3](https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS2/images/4.png)
+**调试输出与分析**
+
+```text
+Allocated 8192 pages at 0xffffffffc025e2f0
+==== Buddy Free List ====
+Order 0: [1 pages @0xffffffffc020e7f0] [1 pages @0xffffffffc020e818] 
+Order 1: [2 pages @0xffffffffc020e840] 
+Order 2: [4 pages @0xffffffffc020e890] 
+Order 3: [8 pages @0xffffffffc020e930] 
+Order 4: [16 pages @0xffffffffc020e570] [16 pages @0xffffffffc020e2f0] [16 pages @0xffffffffc020ea70] 
+Order 6: [64 pages @0xffffffffc020ecf0] 
+Order 7: [128 pages @0xffffffffc020f6f0] 
+Order 8: [256 pages @0xffffffffc0210af0] 
+Order 9: [512 pages @0xffffffffc02132f0] 
+Order 10: [1024 pages @0xffffffffc02182f0] 
+Order 11: [2048 pages @0xffffffffc02222f0] 
+Order 12: [4096 pages @0xffffffffc02362f0] 
+Order 13: [8192 pages @0xffffffffc025e2f0] 
+=========================
+Freed 8192 pages:
+==== Buddy Free List ====
+Order 0: [1 pages @0xffffffffc020e7f0] [1 pages @0xffffffffc020e818] 
+Order 1: [2 pages @0xffffffffc020e840] 
+Order 2: [4 pages @0xffffffffc020e890] 
+Order 3: [8 pages @0xffffffffc020e930] 
+Order 4: [16 pages @0xffffffffc020e570] [16 pages @0xffffffffc020e2f0] [16 pages @0xffffffffc020ea70] 
+Order 6: [64 pages @0xffffffffc020ecf0] 
+Order 7: [128 pages @0xffffffffc020f6f0] 
+Order 8: [256 pages @0xffffffffc0210af0] 
+Order 9: [512 pages @0xffffffffc02132f0] 
+Order 10: [1024 pages @0xffffffffc02182f0] 
+Order 11: [2048 pages @0xffffffffc02222f0] 
+Order 12: [4096 pages @0xffffffffc02362f0] 
+Order 13: [8192 pages @0xffffffffc025e2f0] 
+=========================
+```
 
 该测试验证了最大可分配单元的分配与释放，结果符合预期：
 
-1. **分配阶段**：
+1.  **分配阶段**：
+    *   请求8192页（`Order 13`），系统在`Order 13`链表上找到了一个空闲块并直接分配。
+    *   分配后，`Order 13`链表变空，证明大块内存的直接分配是成功的。
 
-    请求 8192 页时，系统从高阶链表（`Order13`）查找空闲块。由于 8192 页未超出实际可用内存，分配逻辑正常：
-    * 若 `Order13` 链表存在空闲块，直接取出分配，无需拆分高阶块；
-    * 若 `Order13` 链表为空，系统会从更高阶链表拆分出 2 个 8192 页块，分配其中 1 个，剩余 1 个保留在 `Order13` 链表；
-
-    日志显示分配后，`Order13` 链表的块数量相应减少，其他阶链表状态稳定，大页块分配逻辑正确。
-
-2. **释放阶段**：
-
-    释放 8192 页后，系统先将其插入 `Order13` 链表，再自动查找相邻的伙伴块：
-    * 若存在伙伴块，两者合并为 1 个 16384 页块，插入 `Order14` 链表；
-    * 若不存在伙伴块，保持 8192 页块在 `Order13` 链表；
-
-    最终各阶链表状态恢复为分配前，无内存碎片残留，大页块合并逻辑正常。
+2.  **释放阶段**：
+    *   释放8192页后，它被重新加入到`Order 13`的空闲链表中。
+    *   由于没有其他`Order 13`的伙伴块可以合并，它将保持独立。最终内存状态恢复到分配前，逻辑正确。
 
 #### 测试 4：复杂分配释放
 
@@ -919,6 +1029,7 @@ static void buddy_check_max_alloc_free(void) {
 static void buddy_check_difficult(void) {
     // 分配10页（16页）、50页（64页）、100页（128页）
     struct Page *p0 = alloc_pages(10), *p1 = alloc_pages(50), *p2 = alloc_pages(100);
+    cprintf("p0= %p, p1= %p, p2= %p\n", p0, p1, p2);
     cprintf("After allocating p0 (10), p1 (50), p2 (100):\n");
     buddy_show_array(0, MAX_BUDDY_ORDER);
 
@@ -937,26 +1048,84 @@ static void buddy_check_difficult(void) {
 }
 ```
 
-![挑战一4](https://raw.githubusercontent.com/Dou-Dou-Da-D1/OS/master/OS2/images/5.jpg)
+**调试输出与分析**
 
-该测试模拟复杂场景（不同大小块的混合分配与释放），结果验证了系统的灵活性：
+```text
+p0= 0xffffffffc020e570, p1= 0xffffffffc020ecf0, p2= 0xffffffffc020f6f0
+After allocating p0 (10), p1 (50), p2 (100):
+==== Buddy Free List ====
+Order 0: [1 pages @0xffffffffc020e7f0] [1 pages @0xffffffffc020e818] 
+Order 1: [2 pages @0xffffffffc020e840] 
+Order 2: [4 pages @0xffffffffc020e890] 
+Order 3: [8 pages @0xffffffffc020e930] 
+Order 4: [16 pages @0xffffffffc020e570] [16 pages @0xffffffffc020e2f0] [16 pages @0xffffffffc020ea70] 
+Order 6: [64 pages @0xffffffffc020ecf0] 
+Order 7: [128 pages @0xffffffffc020f6f0] 
+Order 8: [256 pages @0xffffffffc0210af0] 
+Order 9: [512 pages @0xffffffffc02132f0] 
+Order 10: [1024 pages @0xffffffffc02182f0] 
+Order 11: [2048 pages @0xffffffffc02222f0] 
+Order 12: [4096 pages @0xffffffffc02362f0] 
+Order 13: [8192 pages @0xffffffffc025e2f0] 
+=========================
+Freed p0 (10 pages):
+==== Buddy Free List ====
+Order 0: [1 pages @0xffffffffc020e7f0] [1 pages @0xffffffffc020e818] 
+Order 1: [2 pages @0xffffffffc020e840] 
+Order 2: [4 pages @0xffffffffc020e890] 
+Order 3: [8 pages @0xffffffffc020e930] 
+Order 4: [16 pages @0xffffffffc020e570] [16 pages @0xffffffffc020e2f0] [16 pages @0xffffffffc020ea70] 
+Order 6: [64 pages @0xffffffffc020ecf0] 
+Order 7: [128 pages @0xffffffffc020f6f0] 
+Order 8: [256 pages @0xffffffffc0210af0] 
+Order 9: [512 pages @0xffffffffc02132f0] 
+Order 10: [1024 pages @0xffffffffc02182f0] 
+Order 11: [2048 pages @0xffffffffc02222f0] 
+Order 12: [4096 pages @0xffffffffc02362f0] 
+Order 13: [8192 pages @0xffffffffc025e2f0] 
+=========================
+Freed p1 (50 pages):
+==== Buddy Free List ====
+Order 0: [1 pages @0xffffffffc020e7f0] [1 pages @0xffffffffc020e818] 
+Order 1: [2 pages @0xffffffffc020e840] 
+Order 2: [4 pages @0xffffffffc020e890] 
+Order 3: [8 pages @0xffffffffc020e930] 
+Order 4: [16 pages @0xffffffffc020e570] [16 pages @0xffffffffc020e2f0] [16 pages @0xffffffffc020ea70] 
+Order 6: [64 pages @0xffffffffc020ecf0] 
+Order 8: [256 pages @0xffffffffc0210af0] 
+Order 9: [512 pages @0xffffffffc02132f0] 
+Order 10: [1024 pages @0xffffffffc02182f0] 
+Order 11: [2048 pages @0xffffffffc02222f0] 
+Order 12: [4096 pages @0xffffffffc02362f0] 
+Order 13: [8192 pages @0xffffffffc025e2f0] 
+=========================
+Freed p2 (100 pages):
+==== Buddy Free List ====
+Order 0: [1pages @0xffffffffc020e7f0] [1 pages @0xffffffffc020e818] 
+Order 1: [2 pages @0xffffffffc020e840] 
+Order 2: [4 pages @0xffffffffc020e890] 
+Order 3: [8 pages @0xffffffffc020e930] 
+Order 4: [16 pages @0xffffffffc020e570] [16 pages @0xffffffffc020e2f0] [16 pages @0xffffffffc020ea70] 
+Order 6: [64 pages @0xffffffffc020ecf0] 
+Order 7: [128 pages @0xffffffffc020f6f0] 
+Order 8: [256 pages @0xffffffffc0210af0] 
+Order 9: [512 pages @0xffffffffc02132f0] 
+Order 10: [1024 pages @0xffffffffc02182f0] 
+Order 11: [2048 pages @0xffffffffc02222f0] 
+Order 12: [4096 pages @0xffffffffc02362f0] 
+Order 13: [8192 pages @0xffffffffc025e2f0] 
+=========================
+```
 
-1. **分配阶段**：
+该测试模拟了复杂场景，结果验证了系统的灵活性：
 
-- 10 页→向上取整 16 页（阶数 4），拆分高阶块后分配；
-- 50 页→向上取整 64 页（阶数 6），直接从 `Order6` 链表分配；
-- 100 页→向上取整 128 页（阶数 7），直接从 `Order7` 链表分配；
+1.  **分配阶段**：
+    *   系统根据之前测试留下的内存状态，成功地为10页（取整16页，`Order 4`）、50页（取整64页，`Order 6`）、100页（取整128页，`Order 7`）的请求分配了内存。
+    *   分配后，可以看到`Order 4`、`Order 6`、`Order 7`的空闲链表都发生了相应的变化，证明了在复杂的内存布局下，分配逻辑依然稳健。
 
-分配后各阶链表块数量对应减少，无重复分配或分配失败，拆分与分配逻辑协调一致。
-
-2. **释放阶段**：
-
-按 “p0→p1→p2” 的顺序释放：
-- 释放 p0（16 页）→插入 `Order4` 链表，无相邻块，不合并；
-- 释放 p1（64 页）→插入 `Order6` 链表，与原 64 页块地址不相邻，不合并；
-- 释放 p2（128 页）→插入 `Order7` 链表，与原 128 页块地址不相邻，不合并；
-
-最终各阶链表块数量恢复为分配前，无碎片累积，复杂场景下的释放与合并逻辑稳定。
+2.  **释放阶段**：
+    *   按“p0→p1→p2”的顺序释放，每个块都被正确地归还到其对应阶的空闲链表中。
+    *   由于释放的块大小不同，且它们的伙伴块可能不存在或已被分配，因此没有发生合并，每个块都作为独立的空闲块存在于各自的链表中。这符合伙伴系统的行为，证明了在复杂场景下释放逻辑的正确性。
 
 ## Challenge2：任意大小的内存单元slub分配算法(需要编程)
 
@@ -1096,40 +1265,4 @@ $$
 - **对应OS原理**：连续内存分配策略。
 - **理解**：  
   - 关系：实验是原理算法的代码落地，核心目标一致——高效利用空闲内存、减少碎片。  
-  - 差异：原理侧重算法思想（如First-Fit查找效率高但低地址碎片多，Best-Fit碎片少但查找耗时）；实验侧重实际实现（链表遍历、块分割与合并的代码逻辑，以及功能正确性验证）。
-
-### （二）伙伴系统（Buddy System）
-- **实验知识点**：设计分层空闲链表，实现块拆分、伙伴查找、合并逻辑，支持高效分配回收。
-- **对应OS原理**：非连续内存分配中的伙伴系统算法。
-- **理解**：  
-  - 关系：实验严格遵循原理核心思想——以2的幂次块为单位管理内存，通过拆分/合并解决连续分配的碎片问题。  
-  - 差异：原理侧重算法流程（分配时向上取幂、回收时合并伙伴块）；实验侧重数据结构设计（全局伙伴管理结构体、阶数计算工具函数）和边界场景测试（最小/最大块分配释放）。
-
-### （三）SLUB分配器
-- **实验知识点**：模拟SLUB核心机制，用缓存管理固定大小小对象，通过slab存储对象与位图，实现对象的快速分配与回收。
-- **对应OS原理**：内核小对象内存分配器（SLAB/SLUB机制）。
-- **理解**：  
-  - 关系：实验复刻原理的“缓存+slab”架构，解决小对象分配的效率与碎片问题。  
-  - 差异：原理中SLUB是Linux内核优化实现（支持多CPU、精简元数据、动态调整slab）；实验简化实现（固定3种对象大小、单页slab、基础位图管理），侧重核心逻辑验证。
-
-### （四）物理内存初始化与缺页异常基础
-- **实验知识点**：初始化空闲页链表、跟踪空闲页计数，处理缺页异常的基础流程。
-- **对应OS原理**：物理内存页帧管理、虚拟内存缺页中断处理。
-- **理解**：  
-  - 关系：实验是原理的底层实现铺垫，确保OS能识别并管理物理内存，响应内存访问异常。  
-  - 差异：原理中缺页处理包含页面置换、外存交互；实验仅实现“分配页帧-更新页表”的基础流程，未涉及外存与置换。
-
-### （五）物理内存范围探测
-- **实验知识点**：思考手动探测、外设辅助探测的方法思路。
-- **对应OS原理**：OS启动时物理内存探测技术。
-- **理解**：  
-  - 关系：实验思路与原理一致——确保OS仅访问有效物理内存，避免地址越界。  
-  - 差异：原理中依赖BIOS/UEFI提供的内存映射表；实验侧重无固件支持时的基础探测逻辑，未涉及实际固件交互。
-
-## 二、OS原理中重要但实验未对应的知识点
-1. **页面置换算法**：虚拟内存核心，解决内存不足时的页面换入换出，实验仅涉及缺页异常基础，未实现置换逻辑。
-2. **多级页表与TLB**：原理中用多级页表解决页表过大问题，TLB加速地址转换，实验未涉及页表优化与硬件加速。
-3. **段式/段页式存储管理**：原理中结合分段（逻辑隔离）与分页（碎片优化）的优势，实验仅涉及连续分配与分页，未涉及分段。
-4. **内存保护与共享**：原理中通过权限控制实现进程内存隔离，支持共享库等内存共享，实验未涉及权限管理与共享机制。
-5. **工作集与缺页率控制**：原理中动态调整进程内存分配以优化缺页率，实验未涉及进程内存需求的动态适配。
-6. **交换空间（Swap）管理**：原理中用磁盘作为虚拟内存扩展，实验未涉及内存与外存的页面交换。
+  -

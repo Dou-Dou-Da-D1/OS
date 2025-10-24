@@ -217,7 +217,7 @@ static size_t buddy_nr_free_pages(void) {
 
 static void buddy_check_min_alloc_free(void) {
     struct Page *p = alloc_pages(1);
-    cprintf("Allocated 1 page:\n");
+    cprintf("Allocated 1 page at %p\n", p);
     buddy_show_array(0, MAX_BUDDY_ORDER);
     free_pages(p, 1);
     cprintf("Freed 1 page:\n");
@@ -226,7 +226,7 @@ static void buddy_check_min_alloc_free(void) {
 
 static void buddy_check_max_alloc_free(void) {
     struct Page *p = alloc_pages(8192);
-    cprintf("Allocated 8192 pages:\n");
+    cprintf("Allocated 8192 pages at %p\n", p);
     buddy_show_array(0, MAX_BUDDY_ORDER);
     free_pages(p, 8192);
     cprintf("Freed 8192 pages:\n");
@@ -235,6 +235,7 @@ static void buddy_check_max_alloc_free(void) {
 
 static void buddy_check_easy(void) {
     struct Page *p0 = alloc_pages(10), *p1 = alloc_pages(10), *p2 = alloc_pages(10);
+    cprintf("p0= %p, p1= %p, p2= %p\n", p0, p1, p2);
     cprintf("After allocating p0, p1, p2 (10 pages each):\n");
     buddy_show_array(0, MAX_BUDDY_ORDER);
 
@@ -253,6 +254,7 @@ static void buddy_check_easy(void) {
 
 static void buddy_check_difficult(void) {
     struct Page *p0 = alloc_pages(10), *p1 = alloc_pages(50), *p2 = alloc_pages(100);
+    cprintf("p0= %p, p1= %p, p2= %p\n", p0, p1, p2);
     cprintf("After allocating p0 (10), p1 (50), p2 (100):\n");
     buddy_show_array(0, MAX_BUDDY_ORDER);
 
