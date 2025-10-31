@@ -6,10 +6,15 @@
 #include <memlayout.h>
 #include <mmu.h>
 #include <riscv.h>
+#include <sbi.h>
 #include <stdio.h>
 #include <trap.h>
 
 #define TICK_NUM 100
+#define ENABLE_TRAP_TEST 1   // 设置为0可关闭启动阶段的断点/非法指令测试
+
+// 前置声明，避免 implicit declaration 警告被当作错误
+static void trigger_exceptions(void);
 
 static void print_ticks() {
     cprintf("%d ticks\n", TICK_NUM);
@@ -17,6 +22,11 @@ static void print_ticks() {
     cprintf("End of Test.\n");
     panic("EOT: kernel seems ok.");
 #endif
+}
+
+static inline int instr_len(uintptr_t epc) {
+    uint16_t inst16 = *(uint16_t *)epc;
+    return ((inst16 & 0x3) == 0x3) ? 4 : 2;
 }
 
 /* idt_init - initialize IDT to each of the entry points in kern/trap/vectors.S
@@ -49,6 +59,18 @@ void idt_init(void) {
     write_csr(sscratch, 0);
     /* Set the exception vector address */
     write_csr(stvec, &__alltraps);
+#if ENABLE_TRAP_TEST
+    // 触发一次异常测试（断点 + 非法指令）
+    trigger_exceptions();
+#endif
+}
+
+static void trigger_exceptions(void) {
+    static int done = 0;
+    if (done) return;
+    done = 1;
+    asm volatile("ebreak");          // 触发 breakpoint 异常
+    asm volatile(".2byte 0x0000");   // 非法压缩指令编码，触发 Illegal instruction
 }
 
 /* trap_in_kernel - test if trap happened in kernel */
@@ -124,12 +146,26 @@ void interrupt_handler(struct trapframe *tf) {
             // In fact, Call sbi_set_timer will clear STIP, or you can clear it
             // directly.
             // cprintf("Supervisor timer interrupt\n");
-             /* LAB3 EXERCISE1   YOUR CODE :  */
+             /* LAB3 EXERCISE1   YOUR CODE :  2311828 2313540*/
             /*(1)设置下次时钟中断- clock_set_next_event()
              *(2)计数器（ticks）加一
              *(3)当计数器加到100的时候，我们会输出一个`100ticks`表示我们触发了100次时钟中断，同时打印次数（num）加一
             * (4)判断打印次数，当打印次数为10时，调用<sbi.h>中的关机函数关机
             */
+            {
+                static int ticks = 0;
+                static int num = 0;
+                clock_set_next_event();
+                ticks++;
+                if (ticks == 100) {
+                    print_ticks();
+                    ticks = 0;
+                    num++;
+                    if (num == 10) {
+                        sbi_shutdown();
+                    }
+                }
+            }
             break;
         case IRQ_H_TIMER:
             cprintf("Hypervisor software interrupt\n");
@@ -162,20 +198,30 @@ void exception_handler(struct trapframe *tf) {
         case CAUSE_FAULT_FETCH:
             break;
         case CAUSE_ILLEGAL_INSTRUCTION:
-             // 非法指令异常处理
-             /* LAB3 CHALLENGE3   YOUR CODE :  */
+            // 非法指令异常处理
+            /* LAB3 CHALLENGE3   YOUR CODE : 2311828 2313540 */
             /*(1)输出指令异常类型（ Illegal instruction）
              *(2)输出异常指令地址
              *(3)更新 tf->epc寄存器
             */
+            {
+                cprintf("Exception type:Illegal instruction\n");
+                cprintf("Illegal instruction caught at 0x%08lx\n", (unsigned long)tf->epc);
+                tf->epc += instr_len(tf->epc);
+            }
             break;
         case CAUSE_BREAKPOINT:
             //断点异常处理
-            /* LAB3 CHALLLENGE3   YOUR CODE :  */
+            /* LAB3 CHALLLENGE3   YOUR CODE : 2311828 2313540 */
             /*(1)输出指令异常类型（ breakpoint）
              *(2)输出异常指令地址
              *(3)更新 tf->epc寄存器
             */
+            {
+                cprintf("Exception type: breakpoint\n");
+                cprintf("ebreak caught at 0x%08lx\n", (unsigned long)tf->epc);
+                tf->epc += instr_len(tf->epc);
+            }
             break;
         case CAUSE_MISALIGNED_LOAD:
             break;

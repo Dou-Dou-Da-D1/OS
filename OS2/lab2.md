@@ -828,7 +828,6 @@ static void buddy_check_easy(void) {
     buddy_show_array(0, MAX_BUDDY_ORDER);
 }
 ```
-
 **调试输出与分析**
 
 ```text
@@ -1118,6 +1117,7 @@ Order 13: [8192 pages @0xffffffffc025e2f0]
 ```
 
 该测试模拟了复杂场景，结果验证了系统的灵活性：
+
 
 1.  **分配阶段**：
     *   系统根据之前测试留下的内存状态，成功地为10页（取整16页，`Order 4`）、50页（取整64页，`Order 6`）、100页（取整128页，`Order 7`）的请求分配了内存。
