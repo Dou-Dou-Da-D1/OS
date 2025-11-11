@@ -89,7 +89,7 @@ static void *__slob_get_free_pages(gfp_t gfp, int order)
 
 static inline void __slob_free_pages(unsigned long kva, int order)
 {
-	free_pages(kva2page(kva), 1 << order);
+	free_pages(kva2page((void *)kva), 1 << order);
 }
 
 static void slob_free(void *b, int size);
@@ -307,7 +307,7 @@ unsigned int ksize(const void *block)
 		for (bb = bigblocks; bb; bb = bb->next)
 			if (bb->pages == block)
 			{
-				spin_unlock_irqrestore(&slob_lock, flags);
+				spin_unlock_irqrestore(&block_lock, flags);
 				return PAGE_SIZE << bb->order;
 			}
 		spin_unlock_irqrestore(&block_lock, flags);
