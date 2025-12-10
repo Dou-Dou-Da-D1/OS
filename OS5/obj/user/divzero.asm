@@ -33,7 +33,7 @@ __panic(const char *file, int line, const char *fmt, ...) {
   800030:	862e                	mv	a2,a1
   800032:	85aa                	mv	a1,a0
   800034:	00000517          	auipc	a0,0x0
-  800038:	53450513          	addi	a0,a0,1332 # 800568 <main+0x42>
+  800038:	53c50513          	addi	a0,a0,1340 # 800570 <main+0x4a>
 __panic(const char *file, int line, const char *fmt, ...) {
   80003c:	ec06                	sd	ra,24(sp)
   80003e:	f436                	sd	a3,40(sp)
@@ -51,7 +51,7 @@ __panic(const char *file, int line, const char *fmt, ...) {
   800052:	02e000ef          	jal	800080 <vcprintf>
     cprintf("\n");
   800056:	00000517          	auipc	a0,0x0
-  80005a:	53250513          	addi	a0,a0,1330 # 800588 <main+0x62>
+  80005a:	53a50513          	addi	a0,a0,1338 # 800590 <main+0x6a>
   80005e:	042000ef          	jal	8000a0 <cprintf>
     va_end(ap);
     exit(-E_PANIC);
@@ -251,7 +251,7 @@ exit(int error_code) {
   800120:	ff1ff0ef          	jal	800110 <sys_exit>
     cprintf("BUG: exit failed.\n");
   800124:	00000517          	auipc	a0,0x0
-  800128:	46c50513          	addi	a0,a0,1132 # 800590 <main+0x6a>
+  800128:	47450513          	addi	a0,a0,1140 # 800598 <main+0x72>
   80012c:	f75ff0ef          	jal	8000a0 <cprintf>
     while (1);
   800130:	a001                	j	800130 <exit+0x14>
@@ -323,7 +323,7 @@ printnum(void (*putch)(int, void*), void *putdat,
     // then print this (the least significant) digit
     putch("0123456789abcdef"[mod], putdat);
   800178:	00000797          	auipc	a5,0x0
-  80017c:	43078793          	addi	a5,a5,1072 # 8005a8 <main+0x82>
+  80017c:	43878793          	addi	a5,a5,1080 # 8005b0 <main+0x8a>
   800180:	97d2                	add	a5,a5,s4
     // Crashes if num >= base. No idea what going on here
     // Here is a quick fix
@@ -392,7 +392,7 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap) 
         switch (ch = *(unsigned char *)fmt ++) {
   8001cc:	05500b13          	li	s6,85
   8001d0:	00000a97          	auipc	s5,0x0
-  8001d4:	500a8a93          	addi	s5,s5,1280 # 8006d0 <main+0x1aa>
+  8001d4:	520a8a93          	addi	s5,s5,1312 # 8006f0 <main+0x1ca>
         while ((ch = *(unsigned char *)fmt ++) != '%') {
   8001d8:	000c4503          	lbu	a0,0(s8)
   8001dc:	001c0413          	addi	s0,s8,1
@@ -677,7 +677,7 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap) 
             if (err > MAXERROR || (p = error_string[err]) == NULL) {
   8003ee:	02d64563          	blt	a2,a3,800418 <vprintfmt+0x274>
   8003f2:	00000797          	auipc	a5,0x0
-  8003f6:	43678793          	addi	a5,a5,1078 # 800828 <error_string>
+  8003f6:	45678793          	addi	a5,a5,1110 # 800848 <error_string>
   8003fa:	00369713          	slli	a4,a3,0x3
   8003fe:	97ba                	add	a5,a5,a4
   800400:	639c                	ld	a5,0(a5)
@@ -685,14 +685,14 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap) 
                 printfmt(putch, putdat, "%s", p);
   800404:	86be                	mv	a3,a5
   800406:	00000617          	auipc	a2,0x0
-  80040a:	1d260613          	addi	a2,a2,466 # 8005d8 <main+0xb2>
+  80040a:	1da60613          	addi	a2,a2,474 # 8005e0 <main+0xba>
   80040e:	85ca                	mv	a1,s2
   800410:	8526                	mv	a0,s1
   800412:	0d8000ef          	jal	8004ea <printfmt>
   800416:	b3c9                	j	8001d8 <vprintfmt+0x34>
                 printfmt(putch, putdat, "error %d", err);
   800418:	00000617          	auipc	a2,0x0
-  80041c:	1b060613          	addi	a2,a2,432 # 8005c8 <main+0xa2>
+  80041c:	1b860613          	addi	a2,a2,440 # 8005d0 <main+0xaa>
   800420:	85ca                	mv	a1,s2
   800422:	8526                	mv	a0,s1
   800424:	0c6000ef          	jal	8004ea <printfmt>
@@ -751,7 +751,7 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap) 
   800484:	02800793          	li	a5,40
   800488:	853e                	mv	a0,a5
   80048a:	00000d97          	auipc	s11,0x0
-  80048e:	137d8d93          	addi	s11,s11,311 # 8005c1 <main+0x9b>
+  80048e:	13fd8d93          	addi	s11,s11,319 # 8005c9 <main+0xa3>
   800492:	b5f5                	j	80037e <vprintfmt+0x1da>
                 for (width -= strnlen(p, precision); width > 0; width --) {
   800494:	85e6                	mv	a1,s9
@@ -781,14 +781,14 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap) 
                 for (width -= strnlen(p, precision); width > 0; width --) {
   8004c4:	85e6                	mv	a1,s9
   8004c6:	00000517          	auipc	a0,0x0
-  8004ca:	0fa50513          	addi	a0,a0,250 # 8005c0 <main+0x9a>
+  8004ca:	10250513          	addi	a0,a0,258 # 8005c8 <main+0xa2>
   8004ce:	03c000ef          	jal	80050a <strnlen>
   8004d2:	40ad0d3b          	subw	s10,s10,a0
             for (; (ch = *p ++) != '\0' && (precision < 0 || -- precision >= 0); width --) {
   8004d6:	02800793          	li	a5,40
                 p = "(null)";
   8004da:	00000d97          	auipc	s11,0x0
-  8004de:	0e6d8d93          	addi	s11,s11,230 # 8005c0 <main+0x9a>
+  8004de:	0eed8d93          	addi	s11,s11,238 # 8005c8 <main+0xa2>
             for (; (ch = *p ++) != '\0' && (precision < 0 || -- precision >= 0); width --) {
   8004e2:	853e                	mv	a0,a5
                 for (width -= strnlen(p, precision); width > 0; width --) {
@@ -845,30 +845,43 @@ strnlen(const char *s, size_t len) {
   800524:	8082                	ret
 
 0000000000800526 <main>:
+#include <ulib.h>
 
 int zero;
 
 int
 main(void) {
-    cprintf("value is %d.\n", 1 / zero);
-  800526:	00001717          	auipc	a4,0x1
-  80052a:	ada72703          	lw	a4,-1318(a4) # 801000 <zero>
+  800526:	1141                	addi	sp,sp,-16
+  800528:	e022                	sd	s0,0(sp)
+    int result;
+    cprintf("zero value is %d.\n", zero);
+  80052a:	00001417          	auipc	s0,0x1
+  80052e:	ad640413          	addi	s0,s0,-1322 # 801000 <zero>
+  800532:	400c                	lw	a1,0(s0)
+  800534:	00000517          	auipc	a0,0x0
+  800538:	17450513          	addi	a0,a0,372 # 8006a8 <main+0x182>
 main(void) {
-  80052e:	1141                	addi	sp,sp,-16
-  800530:	e406                	sd	ra,8(sp)
-    cprintf("value is %d.\n", 1 / zero);
-  800532:	0017079b          	addiw	a5,a4,1
-  800536:	0037b793          	sltiu	a5,a5,3
-  80053a:	0007059b          	sext.w	a1,a4
-  80053e:	e391                	bnez	a5,800542 <main+0x1c>
-  800540:	4581                	li	a1,0
-  800542:	00000517          	auipc	a0,0x0
-  800546:	15e50513          	addi	a0,a0,350 # 8006a0 <main+0x17a>
-  80054a:	b57ff0ef          	jal	8000a0 <cprintf>
+  80053c:	e406                	sd	ra,8(sp)
+    cprintf("zero value is %d.\n", zero);
+  80053e:	b63ff0ef          	jal	8000a0 <cprintf>
+    // 使用内联汇编强制执行除零,确保得到 RISC-V 标准结果 -1
+    asm volatile(
+  800542:	401c                	lw	a5,0(s0)
+  800544:	4585                	li	a1,1
+  800546:	02f5c5b3          	div	a1,a1,a5
+        "div %0, %1, %2"
+        : "=r"(result)
+        : "r"(1), "r"(zero)
+    );
+    cprintf("value is %d.\n", result);
+  80054a:	00000517          	auipc	a0,0x0
+  80054e:	17650513          	addi	a0,a0,374 # 8006c0 <main+0x19a>
+  800552:	2581                	sext.w	a1,a1
+  800554:	b4dff0ef          	jal	8000a0 <cprintf>
     panic("FAIL: T.T\n");
-  80054e:	00000617          	auipc	a2,0x0
-  800552:	16260613          	addi	a2,a2,354 # 8006b0 <main+0x18a>
-  800556:	45a5                	li	a1,9
-  800558:	00000517          	auipc	a0,0x0
-  80055c:	16850513          	addi	a0,a0,360 # 8006c0 <main+0x19a>
-  800560:	ac7ff0ef          	jal	800026 <__panic>
+  800558:	00000617          	auipc	a2,0x0
+  80055c:	17860613          	addi	a2,a2,376 # 8006d0 <main+0x1aa>
+  800560:	45c5                	li	a1,17
+  800562:	00000517          	auipc	a0,0x0
+  800566:	17e50513          	addi	a0,a0,382 # 8006e0 <main+0x1ba>
+  80056a:	abdff0ef          	jal	800026 <__panic>
