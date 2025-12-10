@@ -381,7 +381,6 @@ int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
     // copy content by page unit.
     do
     {
-        // call get_pte to find process A's pte according to the addr start
         pte_t *ptep = get_pte(from, start, 0), *nptep;
         if (ptep == NULL)
         {

@@ -223,13 +223,17 @@ void exception_handler(struct trapframe *tf)
         }
         break;
     case CAUSE_LOAD_PAGE_FAULT:
-        cprintf("Load page fault\n");
-        if (current != NULL) {
-            do_exit(-E_KILLED);
-        }
-        break;
     case CAUSE_STORE_PAGE_FAULT:
-        cprintf("Store/AMO page fault\n");
+        if (current != NULL && current->mm != NULL) {
+            // 尝试 COW 处理
+            ret = do_pgfault(current->mm, tf->cause == CAUSE_STORE_PAGE_FAULT ? 2 : 0, tf->tval);
+            if (ret == 0) {
+                // 成功处理,返回
+                return;
+            }
+        }
+        // COW 处理失败,终止进程
+        cprintf("Page fault\n");
         if (current != NULL) {
             do_exit(-E_KILLED);
         }

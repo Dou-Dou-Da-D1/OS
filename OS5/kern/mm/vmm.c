@@ -382,3 +382,92 @@ bool user_mem_check(struct mm_struct *mm, uintptr_t addr, size_t len, bool write
     }
     return KERN_ACCESS(addr, addr + len);
 }
+
+int do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
+    int ret = -E_INVAL;
+    
+    struct vma_struct *vma = find_vma(mm, addr);
+    if (vma == NULL || vma->vm_start > addr) {
+        cprintf("not valid addr %x, and can not find it in vma\n", addr);
+        goto failed;
+    }
+
+    uint32_t perm = PTE_U | PTE_V;
+    if (vma->vm_flags & VM_WRITE) {
+        perm |= (PTE_R | PTE_W);
+    }
+    if (vma->vm_flags & VM_READ) {
+        perm |= PTE_R;
+    }
+
+    addr = ROUNDDOWN(addr, PGSIZE);
+    
+    pte_t *ptep = get_pte(mm->pgdir, addr, 1);
+    if (ptep == NULL) {
+        cprintf("get_pte in do_pgfault failed\n");
+        goto failed;
+    }
+    
+    // COW 处理
+    if (*ptep & PTE_V) {
+        if ((error_code & 0x2) && !(*ptep & PTE_W)) {
+#ifdef DEBUG_COW
+            cprintf("[COW] Page fault at %x, error_code=%d\n", addr, error_code);
+#endif
+            struct Page *page = pte2page(*ptep);
+            
+#ifdef DEBUG_COW
+            cprintf("[COW] Page ref count: %d\n", page_ref(page));
+#endif
+            
+            if (page_ref(page) == 1) {
+                // 只有一个进程引用,直接修改权限
+                *ptep |= PTE_W;
+                tlb_invalidate(mm->pgdir, addr);
+#ifdef DEBUG_COW
+                cprintf("[COW] Single reference, changed to writable\n");
+#endif
+            } else {
+                // 多个进程共享,需要复制
+#ifdef DEBUG_COW
+                cprintf("[COW] Multiple references, copying page\n");
+#endif
+                struct Page *npage = alloc_page();
+                if (npage == NULL) {
+                    ret = -E_NO_MEM;
+                    goto failed;
+                }
+                
+                // 复制页面内容
+                void *src = page2kva(page);
+                void *dst = page2kva(npage);
+                memcpy(dst, src, PGSIZE);
+                
+                // 使用 page_remove 减少原页面引用计数
+                page_remove(mm->pgdir, addr);
+                
+                // 插入新页面(可写)
+                if (page_insert(mm->pgdir, npage, addr, perm) != 0) {
+                    free_page(npage);
+                    ret = -E_NO_MEM;
+                    goto failed;
+                }
+#ifdef DEBUG_COW
+                cprintf("[COW] Page copied successfully\n");
+#endif
+            }
+            ret = 0;
+            return ret;
+        }
+    }
+    
+    // 原有的缺页处理逻辑
+    if (pgdir_alloc_page(mm->pgdir, addr, perm) == NULL) {
+        cprintf("pgdir_alloc_page in do_pgfault failed\n");
+        goto failed;
+    }
+    
+    ret = 0;
+failed:
+    return ret;
+}

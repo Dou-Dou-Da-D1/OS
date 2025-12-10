@@ -251,6 +251,24 @@ run-nox-%: build-%
 build-%: touch
 	$(V)$(MAKE) $(MAKEOPTS) "DEFS+=-DTEST=$* -DTESTSTART=$(RUN_PREFIX)$*_out_start -DTESTSIZE=$(RUN_PREFIX)$*_out_size"
 
+# 添加 COW 测试的专用目标
+.PHONY: test-cow cow-test
+
+test-cow: cow-test
+
+cow-test: 
+	@echo "Building COW test..."
+	$(V)$(MAKE) $(MAKEOPTS) clean > /dev/null 2>&1
+	$(V)$(MAKE) $(MAKEOPTS) "DEFS+=-DTEST=cow_test -DTESTSTART=$(RUN_PREFIX)cow_test_out_start -DTESTSIZE=$(RUN_PREFIX)cow_test_out_size"
+	@echo "Running COW test with QEMU..."
+	$(V)$(QEMU) \
+		-machine virt \
+		-nographic \
+		-bios default \
+		-device loader,file=$(UCOREIMG),addr=0x80200000 \
+		-serial mon:stdio
+	@echo "COW test completed"
+
 .PHONY: grade touch
 
 GRADE_GDB_IN	:= .gdb.in
