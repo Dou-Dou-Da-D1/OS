@@ -404,7 +404,7 @@ int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
             assert(page != NULL);
             assert(npage != NULL);
             int ret = 0;
-            /* LAB5:EXERCISE2 YOUR CODE
+            /* LAB5:EXERCISE2 2311828 2313540
              * replicate content of page to npage, build the map of phy addr of
              * nage with the linear addr start
              *
@@ -422,6 +422,10 @@ int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
              * (3) memory copy from src_kvaddr to dst_kvaddr, size is PGSIZE
              * (4) build the map of phy addr of  nage with the linear addr start
              */
+            void *src_kvaddr = page2kva(page);
+            void *dst_kvaddr = page2kva(npage);
+            memcpy(dst_kvaddr, src_kvaddr, PGSIZE);
+            ret = page_insert(to, npage, start, perm);
 
             assert(ret == 0);
         }
@@ -489,18 +493,15 @@ struct Page *pgdir_alloc_page(pde_t *pgdir, uintptr_t la, uint32_t perm)
     struct Page *page = alloc_page();
     if (page != NULL)
     {
+        // 先清零新分配的页面,再插入页表
+        memset(page2kva(page), 0, PGSIZE);
         if (page_insert(pgdir, page, la, perm) != 0)
         {
             free_page(page);
             return NULL;
         }
-        // swap_map_swappable(check_mm_struct, la, page, 0);
         page->pra_vaddr = la;
         assert(page_ref(page) == 1);
-        // cprintf("get No. %d  page: pra_vaddr %x, pra_link.prev %x,
-        // pra_link_next %x in pgdir_alloc_page\n", (page-pages),
-        // page->pra_vaddr,page->pra_page_link.prev,
-        // page->pra_page_link.next);
     }
 
     return page;

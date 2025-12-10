@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <riscv.h>
 
-volatile size_t ticks;
+volatile size_t ticks = 0;
 
 static inline uint64_t get_cycles(void) {
 #if __riscv_xlen == 64
