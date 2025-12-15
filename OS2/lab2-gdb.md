@@ -13,7 +13,7 @@ c
 
 x/8i $pc(sd)
 
-si si si si si si si
+si 7
 
 si
 
@@ -33,6 +33,7 @@ c
 
 b get_physical_address
 b riscv_cpu_tlb_fill
+b get_page_addr_code
 
 c
 
