@@ -13,6 +13,7 @@ endif
 # try to infer the correct QEMU
 ifndef QEMU
 QEMU := qemu-system-riscv64
+# QEMU := /home/doudoudadii/qemu/qemu-4.1.1/riscv64-softmmu/qemu-system-riscv64
 endif
 
 ifndef SPIKE
@@ -28,6 +29,7 @@ endif
 # define compiler and flags
 
 HOSTCC		:= gcc
+# HOSTCFLAGS	:= -Wall -O0
 HOSTCFLAGS	:= -Wall -O2
 
 GDB		:= $(GCCPREFIX)gdb
