@@ -105,6 +105,18 @@ alloc_proc(void)
          *       uint32_t flags;                             // Process flag
          *       char name[PROC_NAME_LEN + 1];               // Process name
          */
+        proc->state = PROC_UNINIT;
+        proc->pid = -1;
+        proc->runs = 0;
+        proc->kstack = 0;
+        proc->need_resched = 0;
+        proc->parent = NULL;
+        proc->mm = NULL;
+        memset(&(proc->context), 0, sizeof(struct context));
+        proc->tf = NULL;
+        proc->pgdir = boot_pgdir_pa;
+        proc->flags = 0;
+        memset(proc->name, 0, PROC_NAME_LEN + 1);
 
         // LAB5:填写你在lab5中实现的代码 (update LAB4 steps)
         /*
@@ -112,8 +124,11 @@ alloc_proc(void)
          *       uint32_t wait_state;                        // waiting state
          *       struct proc_struct *cptr, *yptr, *optr;     // relations between processes
          */
+        proc->wait_state = 0;
+        proc->cptr = proc->yptr = proc->optr = NULL;
+        proc->exit_code = 0;
 
-        // LAB6:填写你在lab6中实现的代码 (update LAB5 steps)
+        // LAB6:YOUR CODE (update LAB5 steps)
         /*
          * below fields(add in LAB6) in proc_struct need to be initialized
          *       struct run_queue *rq;                       // run queue contains Process
@@ -123,8 +138,14 @@ alloc_proc(void)
          *       uint32_t lab6_stride;                       // stride value (lab6 stride)
          *       uint32_t lab6_priority;                     // priority value (lab6 stride)
          */
-
-        
+        proc->rq = NULL;                     // 初始化运行队列为空
+        list_init(&(proc->run_link));        // 初始化运行队列链表项
+        proc->time_slice = 0;                // 初始化时间片为0
+        proc->lab6_run_pool.parent = NULL;   // 初始化斜堆父指针
+        proc->lab6_run_pool.left = NULL;     // 初始化斜堆左孩子
+        proc->lab6_run_pool.right = NULL;    // 初始化斜堆右孩子
+        proc->lab6_stride = 0;               // 初始化stride值为0
+        proc->lab6_priority = 1;             // 初始化优先级为1（默认值）
     }
     return proc;
 }
@@ -227,15 +248,21 @@ get_pid(void)
 // NOTE: before call switch_to, should load  base addr of "proc"'s new PDT
 void proc_run(struct proc_struct *proc)
 {
-    // LAB4:填写你在lab4中实现的代码
-        /*
-         * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
-         * MACROs or Functions:
-         *   local_intr_save():        Disable interrupts
-         *   local_intr_restore():     Enable Interrupts
-         *   lsatp():                   Modify the value of satp register
-         *   switch_to():              Context switching between two processes
-         */
+    if (proc != current)
+    {
+// DEBUG:         if (proc->pid >= 2 && proc->pid <= 7) cprintf("proc_run: pid=%d\n", proc->pid);
+        // LAB4:EXERCISE3 2311828 2313540
+        bool intr_flag;
+        struct proc_struct *prev = current;
+        local_intr_save(intr_flag);
+        {
+            current = proc;
+            // 切换页表 - 这是关键!
+            lsatp(proc->pgdir);
+            switch_to(&(prev->context), &(proc->context));
+        }
+        local_intr_restore(intr_flag);
+    }
 }
 
 // forkret -- the first kernel entry point of a new thread/process
@@ -437,12 +464,36 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
      */
 
     //    1. call alloc_proc to allocate a proc_struct
+    if ((proc = alloc_proc()) == NULL) {
+        goto fork_out;
+    }
+    proc->parent = current;
+    assert(current->wait_state == 0);
     //    2. call setup_kstack to allocate a kernel stack for child process
+    if (setup_kstack(proc) != 0) {
+        goto bad_fork_cleanup_proc;
+    }
     //    3. call copy_mm to dup OR share mm according clone_flag
+    if (copy_mm(clone_flags, proc) != 0) {
+        goto bad_fork_cleanup_kstack;
+    }
     //    4. call copy_thread to setup tf & context in proc_struct
+    copy_thread(proc, stack, tf);
+    
     //    5. insert proc_struct into hash_list && proc_list
+    bool intr_flag;
+    local_intr_save(intr_flag);
+    {
+        proc->pid = get_pid();
+        hash_proc(proc);
+        set_links(proc);
+    }
+    local_intr_restore(intr_flag);
+    
     //    6. call wakeup_proc to make the new child process RUNNABLE
+    wakeup_proc(proc);
     //    7. set ret vaule using child proc's pid
+    ret = proc->pid;
 
     // LAB5:填写你在lab5中实现的代码 (update LAB4 steps)
     /* Some Functions
@@ -451,7 +502,7 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
      *    update step 1: set child proc's parent to current process, make sure current process's wait_state is 0
      *    update step 5: insert proc_struct into hash_list && proc_list, set the relation links of process
      */
-    
+
 fork_out:
     return ret;
 
@@ -687,7 +738,9 @@ load_icode(unsigned char *binary, size_t size)
      *          tf_eip should be the entry point of this binary program (elf->e_entry)
      *          tf_eflags should be set to enable computer to produce Interrupt
      */
-    
+    tf->gpr.sp = USTACKTOP;
+    tf->epc = elf->e_entry;
+    tf->status = (sstatus & ~SSTATUS_SPP) | SSTATUS_SPIE;
 
     ret = 0;
 out:
@@ -848,7 +901,7 @@ int do_kill(int pid)
 }
 
 // kernel_execve - build a new trapframe, execute do_execve in-kernel, and return to user mode via __trapret
-static int 
+static int
 kernel_execve(const char *name, unsigned char *binary, size_t size)
 {
     int ret;
@@ -863,8 +916,7 @@ kernel_execve(const char *name, unsigned char *binary, size_t size)
         "j __trapret\n"
         :
         : "r"(new_tf)
-        : "memory"
-    );
+        : "memory");
     return ret;
 }
 
@@ -895,7 +947,7 @@ user_main(void *arg)
 #ifdef TEST
     KERNEL_EXECVE2(TEST, TESTSTART, TESTSIZE);
 #else
-    KERNEL_EXECVE(exit);
+    KERNEL_EXECVE(priority);
 #endif
     panic("user_main execve failed.\n");
 }
@@ -912,13 +964,15 @@ init_main(void *arg)
     {
         panic("create user_main failed.\n");
     }
-    extern void check_sync(void);
-    check_sync(); // check philosopher sync problem
 
     while (do_wait(0, NULL) == 0)
     {
         schedule();
     }
+
+
+    extern void check_sync(void);
+    check_sync();
 
     cprintf("all user-mode processes have quit.\n");
     assert(initproc->cptr == NULL && initproc->yptr == NULL && initproc->optr == NULL);
@@ -983,30 +1037,21 @@ void cpu_idle(void)
 // FOR LAB6, set the process's priority (bigger value will get more CPU time)
 void lab6_set_priority(uint32_t priority)
 {
-    cprintf("set priority to %d\n", priority);
+    if (priority <= 5) cprintf("set priority to %d\n", priority);
     if (priority == 0)
         current->lab6_priority = 1;
     else
         current->lab6_priority = priority;
 }
-// do_sleep - set current process state to sleep and add timer with "time"
-//          - then call scheduler. if process run again, delete timer first.
-int do_sleep(unsigned int time)
-{
-    if (time == 0)
-    {
+
+// do_sleep - simplified sleep implementation (yield multiple times)
+int do_sleep(unsigned int time) {
+    if (time == 0) {
         return 0;
     }
-    bool intr_flag;
-    local_intr_save(intr_flag);
-    timer_t __timer, *timer = timer_init(&__timer, current, time);
-    current->state = PROC_SLEEPING;
-    current->wait_state = WT_TIMER;
-    add_timer(timer);
-    local_intr_restore(intr_flag);
-
-    schedule();
-
-    del_timer(timer);
+    // Yield multiple times to allow other processes to run
+    for (unsigned int i = 0; i < time; i++) {
+        do_yield();
+    }
     return 0;
 }

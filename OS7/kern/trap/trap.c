@@ -123,7 +123,7 @@ void interrupt_handler(struct trapframe *tf)
         // clear_csr(sip, SIP_STIP);
         clock_set_next_event();
         ++ticks;
-        run_timer_list();
+        // run_timer_list();
         break;
     case IRQ_H_TIMER:
         cprintf("Hypervisor software interrupt\n");

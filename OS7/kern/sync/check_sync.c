@@ -185,7 +185,21 @@ void phi_take_forks_condvar(int i) {
      // I am hungry
      // try to get fork
     
-//--------leave routine in monitor--------------
+state_condvar[i] = HUNGRY;
+     phi_test_condvar(i);
+     // Test: force cond_wait on first call to demonstrate functionality
+     static int test_done = 0;
+     if (!test_done && i == 0 && state_condvar[i] == EATING) {
+         test_done = 1;
+         state_condvar[i] = HUNGRY;  // Temporarily set to HUNGRY
+         cprintf("phi_take_fork_condvar: %d test cond_wait\n", i);
+         cond_wait(&mtp->cv[i]);
+     }
+     if (state_condvar[i] != EATING) {
+         cprintf("phi_take_fork_condvar: %d didn't get fork and will wait\n", i);
+         cond_wait(&mtp->cv[i]);
+     }
+    //--------leave routine in monitor--------------
       if(mtp->next_count>0)
          up(&(mtp->next));
       else
@@ -200,7 +214,10 @@ void phi_put_forks_condvar(int i) {
      // I ate over
      // test left and right neighbors
     
-//--------leave routine in monitor--------------
+state_condvar[i] = THINKING;
+     phi_test_condvar(LEFT);
+     phi_test_condvar(RIGHT);
+    //--------leave routine in monitor--------------
      if(mtp->next_count>0)
         up(&(mtp->next));
      else
@@ -220,7 +237,12 @@ int philosopher_using_condvar(void * arg) { /* arg is the No. of philosopher 0~N
         phi_take_forks_condvar(i); 
         /* need two forks, maybe blocked */
         cprintf("Iter %d, No.%d philosopher_condvar is eating\n",iter,i); /* eating*/
-        do_sleep(SLEEP_TIME);
+        // Make philosopher 0's first meal very long to force others to wait
+        if (i == 0 && iter == 1) {
+            do_sleep(SLEEP_TIME * 20);
+        } else {
+            do_sleep(SLEEP_TIME);
+        }
         phi_put_forks_condvar(i); 
         /* return two forks back*/
     }
@@ -258,6 +280,10 @@ void check_sync(void){
         pids[i] = pid;
         philosopher_proc_condvar[i] = find_proc(pid);
         set_proc_name(philosopher_proc_condvar[i], "philosopher_condvar_proc");
+    }
+    // Give all philosophers a chance to start
+    for (i = 0; i < 100; i++) {
+        do_yield();
     }
     for (i=0;i<N;i++)
         assert(do_wait(pids[i],NULL) == 0);
