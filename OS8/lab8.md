@@ -670,7 +670,15 @@ vfs: mount disk0.
 ++ setup timer interrupts
 kernel_execve: pid = 2, name = "sh".
 user sh is running!!!
-$ 
+Hello world!!.
+I am process 3.
+hello pass.
+I am the parent. Forking the child...
+I am parent, fork a child pid 5
+I am the parent, waiting now..
+I am the child.
+waitpid 5 ok.
+exit pass.
 ```
 
 **测试结果分析**：
@@ -678,7 +686,7 @@ $
 - 文件系统成功挂载：`sfs: mount: 'simple file system'`
 - `kernel_execve: pid = 2, name = "sh".` 表示内核成功调用execve加载sh程序
 - `user sh is running!!!` 表示用户态shell程序成功启动
-- 出现 `$` 提示符，说明shell正常运行等待用户输入
+- 出现 `$` 提示符，输入hello和exit后正常执行了用户程序，认为实验基本成功。
 
 #### 2. 执行 `make grade` 评分测试
 
