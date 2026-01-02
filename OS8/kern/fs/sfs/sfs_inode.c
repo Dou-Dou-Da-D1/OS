@@ -600,7 +600,52 @@ sfs_io_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, void *buf, off_t offset
 	 *       NOTICE: useful function: sfs_bmap_load_nolock, sfs_buf_op	
 	*/
 
-    
+    // 块内偏移
+    if ((blkoff = offset % SFS_BLKSIZE) != 0) {
+        // (1) 如果offset不与第一个块对齐，从offset读/写到第一个块的结尾
+        size = (nblks != 0) ? (SFS_BLKSIZE - blkoff) : (endpos - offset);
+        // 获取块号
+        if ((ret = sfs_bmap_load_nolock(sfs, sin, blkno, &ino)) != 0) {
+            goto out;
+        }
+        // 读/写数据
+        if ((ret = sfs_buf_op(sfs, buf, size, ino, blkoff)) != 0) {
+            goto out;
+        }
+        // 更新变量
+        alen += size;
+        if (nblks == 0) {
+            goto out;
+        }
+        buf += size;
+        blkno++;
+        nblks--;
+    }
+
+    // (2) 读/写对齐的块
+    if (nblks > 0) {
+        if ((ret = sfs_bmap_load_nolock(sfs, sin, blkno, &ino)) != 0) {
+            goto out;
+        }
+        if ((ret = sfs_block_op(sfs, buf, ino, nblks)) != 0) {
+            goto out;
+        }
+        alen += nblks * SFS_BLKSIZE;
+        buf += nblks * SFS_BLKSIZE;
+        blkno += nblks;
+        nblks -= nblks;
+    }
+
+    // (3) 如果结束位置不与最后一个块对齐，从开始读/写到最后一个块的(endpos % SFS_BLKSIZE)
+    if ((size = endpos % SFS_BLKSIZE) != 0) {
+        if ((ret = sfs_bmap_load_nolock(sfs, sin, blkno, &ino)) != 0) {
+            goto out;
+        }
+        if ((ret = sfs_buf_op(sfs, buf, size, ino, 0)) != 0) {
+            goto out;
+        }
+        alen += size;
+    }
 
 out:
     *alenp = alen;

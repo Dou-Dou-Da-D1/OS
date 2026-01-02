@@ -266,7 +266,10 @@ qemu: $(UCOREIMG) $(SWAPIMG) $(SFSIMG)
 		-machine virt \
 		-nographic \
 		-bios default \
-		-device loader,file=$(UCOREIMG),addr=0x80200000
+		-device loader,file=$(UCOREIMG),addr=0x80200000 \
+		-device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
+                -serial mon:stdio \
+		-drive file=$(SFSIMG),if=none,format=raw,id=x0
 
 debug: $(UCOREIMG) $(SWAPIMG) $(SFSIMG)
 	$(V)$(QEMU) \
