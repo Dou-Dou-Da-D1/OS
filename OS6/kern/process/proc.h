@@ -7,6 +7,11 @@
 #include <memlayout.h>
 #include <skew_heap.h>
 
+// 补充克隆标志定义（适配ucore）
+#define CLONE_VM        0x00000100  // 共享地址空间（线程）
+#define CLONE_THREAD    0x00010000  // 克隆为线程
+#define CLONE_SIGHAND   0x00020000  // 共享信号处理函数
+
 // process's state in his life cycle
 enum proc_state
 {

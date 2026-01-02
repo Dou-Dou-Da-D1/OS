@@ -1,10 +1,10 @@
 #include <list.h>
 #include <sync.h>
 #include <proc.h>
-#include <sched.h>
 #include <stdio.h>
 #include <assert.h>
 #include <default_sched.h>
+#include "../kern/schedule/sched.h"
 
 // the list of timer
 static list_entry_t timer_list;
@@ -16,8 +16,8 @@ static struct run_queue *rq;
 static inline void
 sched_class_enqueue(struct proc_struct *proc)
 {
-    if (proc != idleproc)
-    {
+    if (proc != idleproc) {
+        proc->rq = rq;
         sched_class->enqueue(rq, proc);
     }
 }
@@ -36,13 +36,10 @@ sched_class_pick_next(void)
 
 void sched_class_proc_tick(struct proc_struct *proc)
 {
-    if (proc != idleproc)
-    {
+    if (proc != idleproc) {
         sched_class->proc_tick(rq, proc);
-    }
-    else
-    {
-        proc->need_resched = 1;
+    } else {
+        /* idleproc: normally do nothing, but could reset accounting */
     }
 }
 
@@ -56,58 +53,72 @@ void sched_init(void)
 
     rq = &__rq;
     rq->max_time_slice = MAX_TIME_SLICE;
+    /* ensure run_queue fields initialized by class */
     sched_class->init(rq);
 
+    
     cprintf("sched class: %s\n", sched_class->name);
 }
 
+/* wakeup_proc: make proc runnable and enqueue if needed */
 void wakeup_proc(struct proc_struct *proc)
 {
-    assert(proc->state != PROC_ZOMBIE);
     bool intr_flag;
     local_intr_save(intr_flag);
-    {
-        if (proc->state != PROC_RUNNABLE)
-        {
-            proc->state = PROC_RUNNABLE;
-            proc->wait_state = 0;
-            if (proc != current)
-            {
-                sched_class_enqueue(proc);
-            }
-        }
-        else
-        {
-            warn("wakeup runnable process.\n");
+
+    if (proc->state != PROC_RUNNABLE) {
+// DEBUG:         cprintf("wakeup_proc: pid=%d state=%d\n", proc->pid, proc->state);
+        proc->state = PROC_RUNNABLE;
+        proc->wait_state = 0;
+        /* only enqueue if it's not the current running thread */
+        if (proc != current) {
+            sched_class_enqueue(proc);
         }
     }
+
     local_intr_restore(intr_flag);
 }
 
+/* schedule: high level scheduling flow (enqueue current if runnable,
+ * pick next, dequeue it and run) */
 void schedule(void)
 {
     bool intr_flag;
-    struct proc_struct *next;
     local_intr_save(intr_flag);
-    {
-        current->need_resched = 0;
-        if (current->state == PROC_RUNNABLE)
-        {
-            sched_class_enqueue(current);
-        }
-        if ((next = sched_class_pick_next()) != NULL)
-        {
-            sched_class_dequeue(next);
-        }
-        if (next == NULL)
-        {
-            next = idleproc;
-        }
-        next->runs++;
-        if (next != current)
-        {
-            proc_run(next);
-        }
+
+    struct proc_struct *cur = current;
+    struct proc_struct *next;
+
+    /* clear resched flag for current; it will be set again if needed */
+    cur->need_resched = 0;
+
+    /* if current is still runnable, enqueue it */
+    if (cur->state == PROC_RUNNABLE) {
+        sched_class_enqueue(cur);
     }
+
+    /* pick next from scheduling class */
+    next = sched_class_pick_next();
+    if (!next) {
+        next = idleproc;
+    } else {
+        /* remove next from run-queue */
+        sched_class_dequeue(next);
+    }
+
+    /* if next is the same as current, nothing to do */
+    if (next == cur) {
+        local_intr_restore(intr_flag);
+        return;
+    }
+
+    // DEBUG: if (next->pid >= 3 && next->pid <= 7) cprintf("schedule: switching to pid=%d\n", next->pid);
+    /* accounting */
+    next->runs++;
+
+    /* context switch */
+    proc_run(next);
+
+    /* proc_run should not return here in normal flow, but restore just in case */
     local_intr_restore(intr_flag);
 }

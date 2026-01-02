@@ -9,7 +9,14 @@
 
 struct proc_struct;
 
-struct run_queue;
+struct run_queue
+{
+    list_entry_t run_list;
+    unsigned int proc_num;
+    int max_time_slice;
+    // For LAB6 ONLY
+    skew_heap_entry_t *lab6_run_pool;
+};
 
 // The introduction of scheduling classes is borrrowed from Linux, and makes the
 // core scheduler quite extensible. These classes (the scheduler modules) encapsulate
@@ -35,15 +42,6 @@ struct sched_class
      *  return value is the num of gotten proc
      *  int (*get_proc)(struct rq* rq, struct proc* procs_moved[]);
      */
-};
-
-struct run_queue
-{
-    list_entry_t run_list;
-    unsigned int proc_num;
-    int max_time_slice;
-    // For LAB6 ONLY
-    skew_heap_entry_t *lab6_run_pool;
 };
 
 void sched_init(void);
