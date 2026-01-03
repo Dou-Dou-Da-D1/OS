@@ -128,10 +128,10 @@ alloc_proc(void)
         proc->cptr = proc->yptr = proc->optr = NULL;
         proc->exit_code = 0;
 
-        // LAB6:YOUR CODE (update LAB5 steps)
+        // LAB6:2311828 2313540 (update LAB5 steps)
         /*
          * below fields(add in LAB6) in proc_struct need to be initialized
-         *       struct run_queue *rq;                       // run queue contains Process
+         *       struct run_queue *rq;                       // run queue contains Process  // run queue的指针
          *       list_entry_t run_link;                      // the entry linked in run queue
          *       int time_slice;                             // time slice for occupying the CPU
          *       skew_heap_entry_t lab6_run_pool;            // entry in the run pool (lab6 stride)

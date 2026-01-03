@@ -26,36 +26,38 @@ RR_init(struct run_queue *rq)
 }
 
 /*
- * RR_enqueue inserts the process ``proc'' into the tail of run-queue
+ * RR算法直接把需要入队的进程放在调度队列的尾端
  */
 static void
 RR_enqueue(struct run_queue *rq, struct proc_struct *proc)
 {
     assert(proc);
-    /* add to tail */
+    /* 添加到队尾 */
     list_add_before(&rq->run_list, &proc->run_link);
 // DEBUG:     if (proc->pid >= 2 && proc->pid <= 7) cprintf("RR_enqueue: pid=%d\n", proc->pid); /* if list_add_before behaves as add_tail */
     proc->rq = rq;
     rq->proc_num++;
-    /* reset time slice for RR */
+    /* 若当前进程剩余时间片为0，重置时间片为最大时间片 */
     if (proc != idleproc) {
         proc->time_slice = rq->max_time_slice;
     }
 }
 
 /*
+    直接将进程从调度队列中移除
  */
 static void
 RR_dequeue(struct run_queue *rq, struct proc_struct *proc)
 {
     assert(proc && proc->rq == rq);
 // DEBUG:     if (proc->pid >= 2 && proc->pid <= 7) cprintf("RR_dequeue: pid=%d\n", proc->pid);
-    list_del_init(&proc->run_link);
+    list_del_init(&proc->run_link);     // 从队列中移除该进程
     proc->rq = NULL;
-    rq->proc_num--;
+    rq->proc_num--;     // 更新rq中进程数目
 }
 
 /*
+    pick_next选取队列头的表项，用le2proc函数获得对应的进程控制块
  */
 static struct proc_struct *
 RR_pick_next(struct run_queue *rq)
@@ -70,6 +72,7 @@ RR_pick_next(struct run_queue *rq)
 }
 
 /*
+    proc_tick函数在每一次时钟中断调用，减小当前进程时间片。
  */
 static void
 RR_proc_tick(struct run_queue *rq, struct proc_struct *proc)
@@ -81,6 +84,7 @@ RR_proc_tick(struct run_queue *rq, struct proc_struct *proc)
     if (proc->time_slice > 0) {
         proc->time_slice--;
     }
+    // 当时间片减少为0时，便把当前进程设置为可调度。
     if (proc->time_slice == 0) {
         proc->need_resched = 1;
     }

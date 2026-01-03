@@ -48,7 +48,7 @@ stride_init(struct run_queue *rq)
       * (2) init the run pool: rq->lab6_run_pool
       * (3) set number of process: rq->proc_num to 0
       */
-     list_init(&rq->run_list);    // 初始化链表（兼容旧逻辑）
+     list_init(&rq->run_list);    // 初始化有序链表
      rq->lab6_run_pool = NULL;    // 初始化斜堆（stride核心）
      rq->proc_num = 0;            // 就绪进程数置0
 }

@@ -150,8 +150,6 @@ void interrupt_handler(struct trapframe *tf)
     }
 }
 void kernel_execve_ret(struct trapframe *tf, uintptr_t kstacktop);
-static void print_pgfault(struct trapframe *tf);
-int pgfault_handler(struct trapframe *tf);
 void exception_handler(struct trapframe *tf)
 {
     int ret;
@@ -200,35 +198,14 @@ void exception_handler(struct trapframe *tf)
     case CAUSE_FETCH_PAGE_FAULT:
         if ((ret = pgfault_handler(tf)) != 0) {
             print_trapframe(tf);
-            if (trap_in_kernel(tf)) {
-                panic("handle pgfault failed. %e\n", ret);
-            } else {
-                cprintf("killed by kernel.\n");
-                do_exit(-E_KILLED);
-            }
+            panic("handle pgfault failed. %e\n", ret);
         }
         break;
     case CAUSE_LOAD_PAGE_FAULT:
-        if ((ret = pgfault_handler(tf)) != 0) {
-            print_trapframe(tf);
-            if (trap_in_kernel(tf)) {
-                panic("handle pgfault failed. %e\n", ret);
-            } else {
-                cprintf("killed by kernel.\n");
-                do_exit(-E_KILLED);
-            }
-        }
+        cprintf("Load page fault\n");
         break;
     case CAUSE_STORE_PAGE_FAULT:
-        if ((ret = pgfault_handler(tf)) != 0) {
-            print_trapframe(tf);
-            if (trap_in_kernel(tf)) {
-                panic("handle pgfault failed. %e\n", ret);
-            } else {
-                cprintf("killed by kernel.\n");
-                do_exit(-E_KILLED);
-            }
-        }
+        cprintf("Store/AMO page fault\n");
         break;
     default:
         print_trapframe(tf);
@@ -255,40 +232,6 @@ static inline void trap_dispatch(struct trapframe *tf)
  * the code in kern/trap/trapentry.S restores the old CPU state saved in the
  * trapframe and then uses the iret instruction to return from the exception.
  * */
-
-// 打印页面错误信息
-static void print_pgfault(struct trapframe *tf) {
-    cprintf("page fault at 0x%08x: %c/%c\n", tf->tval,
-            (tf->cause == CAUSE_LOAD_PAGE_FAULT) ? 'R' : 'W',
-            (tf->status & SSTATUS_SPP) ? 'K' : 'U');
-}
-
-// 页面错误处理函数
-int pgfault_handler(struct trapframe *tf) {
-    extern struct mm_struct *check_mm_struct;
-    print_pgfault(tf);
-    
-    // 特殊处理：测试程序读取地址0和0xfac00000
-    if ((tf->tval == 0 || tf->tval == 0xfac00000) && 
-        tf->cause == CAUSE_LOAD_PAGE_FAULT && !trap_in_kernel(tf)) {
-        cprintf("I read %8x from %x.\n", 0, (unsigned int)tf->tval);
-        // 继续执行，让程序调用panic
-        return -E_INVAL; // 这将导致进程被杀死，但会先输出消息
-    }
-    
-    if (check_mm_struct != NULL) {
-        return do_pgfault(check_mm_struct, tf->cause, tf->tval);
-    }
-    
-    // 如果没有mm结构，检查是否是用户进程
-    if (current != NULL && current->mm != NULL) {
-        return do_pgfault(current->mm, tf->cause, tf->tval);
-    }
-    
-    // 内核态的非法访问
-    return -E_INVAL;
-}
-
 void trap(struct trapframe *tf)
 {
     // dispatch based on what type of trap occurred

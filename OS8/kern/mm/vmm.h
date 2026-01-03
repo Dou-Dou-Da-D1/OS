@@ -116,3 +116,4 @@ unlock_mm(struct mm_struct *mm)
 }
 
 #endif /* !__KERN_MM_VMM_H__ */
+int do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr);

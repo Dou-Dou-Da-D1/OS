@@ -413,3 +413,55 @@ copy_string(struct mm_struct *mm, char *dst, const char *src, size_t maxn) {
         part = PGSIZE;
     }
 }
+
+// 页面错误处理
+int do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
+    int ret = -E_INVAL;
+    
+    // 查找包含该地址的VMA
+    struct vma_struct *vma = find_vma(mm, addr);
+    if (vma == NULL || vma->vm_start > addr) {
+        cprintf("not valid addr %x, and cannot find it in vma\n", addr);
+        goto failed;
+    }
+    
+    // 检查权限
+    uint32_t perm = PTE_U | PTE_V;
+    if (vma->vm_flags & VM_WRITE) {
+        perm |= (PTE_R | PTE_W);
+    }
+    if (vma->vm_flags & VM_READ) {
+        perm |= PTE_R;
+    }
+    if (vma->vm_flags & VM_EXEC) {
+        perm |= PTE_X;
+    }
+    
+    addr = ROUNDDOWN(addr, PGSIZE);
+    
+    pte_t *ptep = NULL;
+    // 获取页表项
+    if ((ptep = get_pte(mm->pgdir, addr, 1)) == NULL) {
+        cprintf("get_pte in do_pgfault failed\n");
+        goto failed;
+    }
+    
+    if (*ptep == 0) {
+        // 页面不存在，分配新页面
+        if (pgdir_alloc_page(mm->pgdir, addr, perm) == NULL) {
+            cprintf("pgdir_alloc_page in do_pgfault failed\n");
+            goto failed;
+        }
+    } else {
+        // 页面存在但权限不足或其他问题
+        cprintf("page already exists but fault occurred\n");
+        goto failed;
+    }
+    
+    ret = 0;
+failed:
+    return ret;
+}
+
+// 全局变量，用于测试
+struct mm_struct *check_mm_struct;

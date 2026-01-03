@@ -51,7 +51,7 @@ struct proc_struct
     int pid;                                // Process ID
     int runs;                               // the running times of Proces
     uintptr_t kstack;                       // Process kernel stack
-    volatile bool need_resched;             // bool value: need to be rescheduled to release CPU?
+    volatile bool need_resched;             // 表示这个进程是否需要调度来释放cpu
     struct proc_struct *parent;             // the parent process
     struct mm_struct *mm;                   // Process's memory management field
     struct context context;                 // Switch here to run process
@@ -64,12 +64,12 @@ struct proc_struct
     int exit_code;                          // exit code (be sent to parent proc)
     uint32_t wait_state;                    // waiting state
     struct proc_struct *cptr, *yptr, *optr; // relations between processes
-    struct run_queue *rq;                   // running queue contains Process
-    list_entry_t run_link;                  // the entry linked in run queue
-    int time_slice;                         // time slice for occupying the CPU
-    skew_heap_entry_t lab6_run_pool;        // FOR LAB6 ONLY: the entry in the run pool
-    uint32_t lab6_stride;                   // FOR LAB6 ONLY: the current stride of the process
-    uint32_t lab6_priority;                 // FOR LAB6 ONLY: the priority of process, set by lab6_set_priority(uint32_t)
+    struct run_queue *rq;                   // run queue的指针
+    list_entry_t run_link;                  // 与进程相关的run queue表项，链表节点
+    int time_slice;                         // 占据CPU的时间片，记录这个进程剩下的时间片
+    skew_heap_entry_t lab6_run_pool;        // FOR LAB6 ONLY: 斜堆节点，这个进程在优先队列中对应的项
+    uint32_t lab6_stride;                   // FOR LAB6 ONLY: 该进程的当前stride值
+    uint32_t lab6_priority;                 // FOR LAB6 ONLY: 进程优先级, set by lab6_set_priority(uint32_t)
 };
 
 #define PF_EXITING 0x00000001 // getting shutdown
