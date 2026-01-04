@@ -772,13 +772,158 @@ void mlfq_boost(struct run_queue *rq) {
 
 ---
 
-### 4. 运行结果分析
+### 4. Stride 溢出保护机制实现
 
-#### 4.1 实验验证方法
+#### 4.1 问题分析
+
+**溢出风险**：
+在 Stride 调度算法中，每次选中进程后会执行 `stride += BIG_STRIDE / priority`。随着系统长时间运行，stride 值会不断累加，最终可能超过 32 位无符号整数的上限（`0xFFFFFFFF`），导致溢出。
+
+**核心不变量**：
+```
+STRIDE_MAX - STRIDE_MIN <= PASS_MAX
+```
+其中 `PASS_MAX = BIG_STRIDE = 0x7FFFFFFF`
+
+当任意进程的 stride 接近溢出时，不同进程间的 stride 差值可能超过 `PASS_MAX`，导致有符号比较失效，调度顺序错乱。
+
+#### 4.2 解决方案：归一化机制
+
+**基本思路**：
+- 在 stride 更新前检测是否接近溢出
+- 若检测到风险，触发归一化：将所有进程的 stride 减去当前最小 stride
+- 这样保持相对顺序不变，同时将基准值重置为 0
+
+**实现代码**：
+
+1. **定义溢出阈值常量**（`kern/schedule/default_sched_stride.c`）：
+
+```c
+/* Overflow protection constants for stride scheduling */
+#define PASS_MAX BIG_STRIDE          /* 最大stride增量 (优先级=1时) */
+#define STRIDE_OVERFLOW_THRESHOLD (0xFFFFFFFFU - BIG_STRIDE)  
+/* 触发归一化阈值：当stride超过此值时，再加一次可能溢出 */
+```
+
+2. **归一化函数实现**：
+
+```c
+/* Normalize all stride values to prevent overflow 
+ * 将所有进程的stride减去最小值，重置基准但保持相对顺序
+ */
+static void stride_normalize(struct run_queue *rq) {
+    if (rq->lab6_run_pool == NULL || rq->proc_num == 0) {
+        return;
+    }
+    
+    // 斜堆的根节点保存最小stride值
+    struct proc_struct *min_proc = le2proc(rq->lab6_run_pool, lab6_run_pool);
+    uint32_t min_stride = min_proc->lab6_stride;
+    
+    if (min_stride == 0) {
+        return;  // 已经归一化，无需操作
+    }
+    
+    // 使用临时链表暂存所有进程
+    list_entry_t temp_list;
+    list_init(&temp_list);
+    
+    // 从堆中取出所有进程，同时进行归一化
+    while (rq->lab6_run_pool != NULL) {
+        struct proc_struct *proc = le2proc(rq->lab6_run_pool, lab6_run_pool);
+        rq->lab6_run_pool = skew_heap_remove(rq->lab6_run_pool, 
+                                             &proc->lab6_run_pool, 
+                                             proc_stride_comp_f);
+        proc->lab6_stride -= min_stride;  // 减去最小值，归一化
+        list_add(&temp_list, &proc->run_link);
+    }
+    
+    // 将归一化后的进程重新插入堆
+    while (!list_empty(&temp_list)) {
+        list_entry_t *le = list_next(&temp_list);
+        list_del(le);
+        struct proc_struct *proc = le2proc(le, run_link);
+        rq->lab6_run_pool = skew_heap_insert(rq->lab6_run_pool, 
+                                            &proc->lab6_run_pool, 
+                                            proc_stride_comp_f);
+    }
+}
+```
+
+3. **在 stride_pick_next 中触发溢出检查**：
+
+```c
+static struct proc_struct *stride_pick_next(struct run_queue *rq) {
+    if (rq->lab6_run_pool == NULL) {
+        return idleproc;
+    }
+    
+    struct proc_struct *p = le2proc(rq->lab6_run_pool, lab6_run_pool);
+    uint32_t priority = (p->lab6_priority == 0) ? 1 : p->lab6_priority;
+    uint32_t stride_inc = BIG_STRIDE / priority;
+    
+    // 溢出保护：如果当前stride加上增量会导致溢出，先归一化
+    if (p->lab6_stride > STRIDE_OVERFLOW_THRESHOLD) {
+        stride_normalize(rq);
+        // 归一化后重新获取堆顶进程（可能已变化）
+        p = le2proc(rq->lab6_run_pool, lab6_run_pool);
+        priority = (p->lab6_priority == 0) ? 1 : p->lab6_priority;
+        stride_inc = BIG_STRIDE / priority;
+    }
+    
+    p->lab6_stride += stride_inc;
+    return p;
+}
+```
+
+#### 4.3 实现要点与注意事项
+
+**正确性保证**：
+1. **相对顺序不变**：所有进程减去同一常数，比较结果不变
+2. **有符号比较安全**：归一化后最小值为 0，最大差值不超过 `PASS_MAX`
+3. **并发安全**：必须在调度锁保护下调用（`stride_pick_next` 在调度路径中已被锁保护）
+
+**性能考虑**：
+- 时间复杂度：O(n log n)，需要重建整个堆
+- 触发频率：仅在 stride 接近 `0xFFFFFFFF - BIG_STRIDE` 时触发，正常运行中极少发生
+- 对于进程数较多的系统，可考虑优化为全局偏移量方案（O(1) 归一化）
+
+**替代方案**：
+1. **64位stride**：将 `lab6_stride` 升级为 `uint64_t`，实际不会溢出（需修改比较函数）
+2. **全局偏移量**：维护 `run_queue` 的 `stride_offset`，比较时动态计算，归一化只需调整偏移（需改造比较函数签名）
+
+**调试验证**：
+```bash
+# 在 stride_normalize 中添加调试输出
+cprintf("[STRIDE] Normalizing: min_stride=%u, proc_num=%u\n", 
+        min_stride, rq->proc_num);
+```
+
+#### 5.4 测试方法
+
+**模拟长时间运行**：
+```c
+// 在测试程序中创建高优先级进程（priority=1），使其快速累积stride
+for (int i = 0; i < 100000; i++) {
+    schedule();  // 强制调度，观察stride累加
+}
+```
+
+**预期行为**：
+- 系统正常运行，无调度错误
+- 当 stride 接近阈值时，触发归一化
+- 归一化后，最小 stride 重置为 0，调度顺序保持正确
+
+---
+
+
+### 5. 运行结果分析
+
+#### 5.1 实验验证方法
 
 通过运行priority测试程序，观察不同优先级进程获得的CPU时间，验证Stride调度算法是否正确实现了按优先级比例分配CPU时间。
 
-#### 4.2 实际运行结果
+#### 5.2 实际运行结果
 
 **测试环境：**
 - 切换到Stride调度器：`sched_class = &stride_sched_class`
@@ -806,7 +951,7 @@ sched result: 1 2 3 4 4
 all user-mode processes have quit.
 ```
 
-#### 4.3 结果分析
+#### 5.3 结果分析
 
 **1. 关键观察**
 
@@ -839,7 +984,7 @@ all user-mode processes have quit.
 - 低优先级进程(priority=5)仍然获得了348000次执行机会
 - 说明Stride算法不会导致饥饿
 
-#### 4.4 偏差原因分析
+#### 5.4 偏差原因分析
 
 **为什么实际比例(4.29)小于理论比例(5.0)？**
 
@@ -868,7 +1013,7 @@ all user-mode processes have quit.
    - 可能包含缓存miss、分支预测失败等因素
    - 不同进程的执行效率略有差异
 
-#### 4.5 为什么能说明算法正确？
+#### 5.5 为什么能说明算法正确？
 
 虽然存在偏差，但以下证据充分说明Stride算法正确实现了目标：
 
@@ -891,7 +1036,7 @@ all user-mode processes have quit.
    - 我们的结果：348:612:876:1240:1492 → 比例 1:1.76:2.52:3.56:4.29
    - 两者趋势一致，都体现了按优先级分配的特性
 
-#### 4.6 简要原理说明
+#### 5.6 简要原理说明
 
 **为什么Stride算法能实现比例分配？**
 
@@ -1088,4 +1233,5 @@ all user-mode processes have quit.
 5. **调试的重要性**：遇到"进程丢失"、调度不工作等问题，需要系统地排查状态转换和队列操作
 
 最大的收获是理解了**调度器是操作系统的核心组件之一**，它决定了系统的响应性、吞吐量和公平性。不同的调度算法适用于不同的场景，没有银弹，只有权衡。
+
 

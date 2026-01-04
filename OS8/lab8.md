@@ -151,6 +151,25 @@ static void __slob_free_pages(void *kva) {
     free_pages(page, 1);
 }
 ```
+8. **串口轮询**（[kern/trap/trap.c](kern/trap/trap.c)）
+在`kern/trap/trap.c`的`IRQ_S_TIMER`中断处理中添加串口轮询：
+
+```c
+case IRQ_S_TIMER:
+    // "All bits besides SSIP and USIP in the sip register are
+    // read-only." -- privileged spec1.9.1, 4.1.4, p59
+    // In fact, Call sbi_set_timer will clear STIP, or you can clear it
+    // directly.
+    // clear_csr(sip, SIP_STIP);
+    clock_set_next_event();
+    
+    // LAB8 关键改动：在时钟中断中轮询串口输入
+    serial_intr();        // 检查并读取串口数据
+    
+    ++ticks;
+    run_timer_list();
+    break;
+```
 ---
 
 ## 练习1：完成读文件操作的实现

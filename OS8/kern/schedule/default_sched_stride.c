@@ -13,6 +13,58 @@
 /* LAB6 CHALLENGE 1: 2311828 2313540 */
 #define BIG_STRIDE (0x7FFFFFFF) /* you should give a value, and is ??? */
 
+/* Overflow protection constants for stride scheduling 
+ * 
+ * Key insight: stride values use int32_t for comparison (signed arithmetic).
+ * To prevent overflow while maintaining correct comparison:
+ * - PASS_MAX is the maximum pass increment (when priority = 1)
+ * - When any process's stride could overflow, we normalize all strides
+ * - This ensures STRIDE_MAX - STRIDE_MIN <= PASS_MAX always holds
+ */
+#define PASS_MAX BIG_STRIDE          /* Maximum stride increment per scheduling */
+#define STRIDE_OVERFLOW_THRESHOLD (0xFFFFFFFFU - BIG_STRIDE)  /* Trigger normalization before overflow */
+
+/* Forward declaration for stride comparison function */
+static int proc_stride_comp_f(void *a, void *b);
+
+/* Normalize all stride values to prevent overflow 
+ * This function subtracts the minimum stride from all processes,
+ * effectively resetting the baseline while preserving relative ordering.
+ */
+static void stride_normalize(struct run_queue *rq) {
+    if (rq->lab6_run_pool == NULL || rq->proc_num == 0) {
+        return;
+    }
+    
+    // The minimum stride is at the root of the skew heap
+    struct proc_struct *min_proc = le2proc(rq->lab6_run_pool, lab6_run_pool);
+    uint32_t min_stride = min_proc->lab6_stride;
+    
+    if (min_stride == 0) {
+        return;  // Already normalized
+    }
+    
+    // Use a temporary list to extract all processes
+    list_entry_t temp_list;
+    list_init(&temp_list);
+    
+    // Extract all processes from the heap and normalize strides
+    while (rq->lab6_run_pool != NULL) {
+        struct proc_struct *proc = le2proc(rq->lab6_run_pool, lab6_run_pool);
+        rq->lab6_run_pool = skew_heap_remove(rq->lab6_run_pool, &proc->lab6_run_pool, proc_stride_comp_f);
+        proc->lab6_stride -= min_stride;  // Normalize: subtract minimum
+        list_add(&temp_list, &proc->run_link);
+    }
+    
+    // Re-insert all processes back into the heap (now with normalized strides)
+    while (!list_empty(&temp_list)) {
+        list_entry_t *le = list_next(&temp_list);
+        list_del(le);
+        struct proc_struct *proc = le2proc(le, run_link);
+        rq->lab6_run_pool = skew_heap_insert(rq->lab6_run_pool, &proc->lab6_run_pool, proc_stride_comp_f);
+    }
+}
+
 /* The compare function for two skew_heap_node_t's and the
  * corresponding procs*/
 static int
@@ -156,6 +208,17 @@ stride_pick_next(struct run_queue *rq)
      // 2. 更新进程stride：stride += BIG_STRIDE / 优先级（优先级默认为1，避免除0）
      uint32_t priority = (p->lab6_priority == 0) ? 1 : p->lab6_priority;
      uint32_t stride_inc = BIG_STRIDE / priority;
+     
+     // 溢出保护：如果当前stride加上增量会导致溢出，则先进行归一化
+     // 确保满足不变量：STRIDE_MAX - STRIDE_MIN <= PASS_MAX
+     if (p->lab6_stride > STRIDE_OVERFLOW_THRESHOLD) {
+         stride_normalize(rq);
+         // 归一化后重新获取堆顶进程（可能已变化）
+         p = le2proc(rq->lab6_run_pool, lab6_run_pool);
+         priority = (p->lab6_priority == 0) ? 1 : p->lab6_priority;
+         stride_inc = BIG_STRIDE / priority;
+     }
+     
      p->lab6_stride += stride_inc;
 
      // 3. 返回选中的进程

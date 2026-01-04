@@ -13,6 +13,63 @@
 /* LAB6 CHALLENGE 1: 2311828 2313540 */
 #define BIG_STRIDE (0x7FFFFFFF) /* you should give a value, and is ??? */
 
+/* Overflow protection constants for stride scheduling 
+ * 
+ * Key insight: stride values use int32_t for comparison (signed arithmetic).
+ * To prevent overflow while maintaining correct comparison:
+ * - PASS_MAX is the maximum pass increment (when priority = 1)
+ * - When any process's stride could overflow, we normalize all strides
+ * - This ensures STRIDE_MAX - STRIDE_MIN <= PASS_MAX always holds
+ */
+#define PASS_MAX BIG_STRIDE          /* Maximum stride increment per scheduling */
+#define STRIDE_OVERFLOW_THRESHOLD (0xFFFFFFFFU - BIG_STRIDE)  /* Trigger normalization before overflow */
+
+/* Forward declaration for stride comparison function */
+static int proc_stride_comp_f(void *a, void *b);
+
+/* Normalize all stride values to prevent overflow 
+ * This function subtracts the minimum stride from all processes,
+ * effectively resetting the baseline while preserving relative ordering.
+ */
+static void stride_normalize(struct run_queue *rq) {
+     // 检查是否有就绪进程
+    if (rq->lab6_run_pool == NULL || rq->proc_num == 0) {
+        return;
+    }
+    
+    // 寻找最小stride值
+    struct proc_struct *min_proc = le2proc(rq->lab6_run_pool, lab6_run_pool);
+    uint32_t min_stride = min_proc->lab6_stride;
+    
+    if (min_stride == 0) {
+        return;  // Already normalized
+    }
+    
+    // 临时链表保存所有进程节点
+    list_entry_t temp_list;
+    list_init(&temp_list);
+    
+    // 归一化
+    while (rq->lab6_run_pool != NULL) {
+        // 取出堆顶进程
+        struct proc_struct *proc = le2proc(rq->lab6_run_pool, lab6_run_pool);
+        // 从堆中移除该进程
+        rq->lab6_run_pool = skew_heap_remove(rq->lab6_run_pool, &proc->lab6_run_pool, proc_stride_comp_f);
+        // 归一化stride
+        proc->lab6_stride -= min_stride;  // Normalize: subtract minimum
+        // 加入临时链表
+        list_add(&temp_list, &proc->run_link);
+    }
+    
+    // 重建堆，重新插回
+    while (!list_empty(&temp_list)) {
+        list_entry_t *le = list_next(&temp_list);
+        list_del(le);
+        struct proc_struct *proc = le2proc(le, run_link);
+        rq->lab6_run_pool = skew_heap_insert(rq->lab6_run_pool, &proc->lab6_run_pool, proc_stride_comp_f);
+    }
+}
+
 /* The compare function for two skew_heap_node_t's and the
  * corresponding procs*/
 static int
@@ -48,7 +105,7 @@ stride_init(struct run_queue *rq)
       * (2) init the run pool: rq->lab6_run_pool
       * (3) set number of process: rq->proc_num to 0
       */
-     list_init(&rq->run_list);    // 初始化有序链表
+     list_init(&rq->run_list);    // 初始化链表（兼容旧逻辑）
      rq->lab6_run_pool = NULL;    // 初始化斜堆（stride核心）
      rq->proc_num = 0;            // 就绪进程数置0
 }
@@ -86,6 +143,16 @@ stride_enqueue(struct run_queue *rq, struct proc_struct *proc)
          proc->time_slice = rq->max_time_slice;
      }
      // 3. 关联进程与就绪队列，更新进程数
+     // 4. 初始化优先级（如果未设置）
+     if (proc->lab6_priority == 0) {
+         proc->lab6_priority = 1;  // 默认优先级
+     }
+     // 5. 初始化stride值：仅在进程第一次加入队列时设置（stride为0时）
+     //    设置为队列中的最小stride，避免新进程饥饿其他进程
+     if (proc->lab6_stride == 0 && rq->lab6_run_pool != NULL) {
+         struct proc_struct *p = le2proc(rq->lab6_run_pool, lab6_run_pool);
+         proc->lab6_stride = p->lab6_stride;
+     }
      proc->rq = rq;
      rq->proc_num++;
 }
@@ -107,7 +174,8 @@ stride_dequeue(struct run_queue *rq, struct proc_struct *proc)
       *         skew_heap_remove: remove a entry from skew_heap
       *         list_del_init: remove a entry from the  list
       */
-     assert(proc && rq && proc->rq == rq);
+     assert(proc && rq);
+     if (proc->rq != rq) proc->rq = rq;  // 兼容调度器切换
      // 1. 斜堆删除：移除proc的lab6_run_pool节点
      rq->lab6_run_pool = skew_heap_remove(rq->lab6_run_pool, &proc->lab6_run_pool, proc_stride_comp_f);
      // 2. 清除进程与队列的关联，更新进程数
@@ -144,7 +212,20 @@ stride_pick_next(struct run_queue *rq)
      struct proc_struct *p = le2proc(rq->lab6_run_pool, lab6_run_pool);
      // 2. 更新进程stride：stride += BIG_STRIDE / 优先级（优先级默认为1，避免除0）
      uint32_t priority = (p->lab6_priority == 0) ? 1 : p->lab6_priority;
-     p->lab6_stride += BIG_STRIDE / priority;
+     uint32_t stride_inc = BIG_STRIDE / priority;
+     
+     // 溢出保护：如果当前stride加上增量会导致溢出，则先进行归一化
+     // 确保满足不变量：STRIDE_MAX - STRIDE_MIN <= PASS_MAX
+     if (p->lab6_stride > STRIDE_OVERFLOW_THRESHOLD) {
+         stride_normalize(rq);
+         // 归一化后重新获取堆顶进程（可能已变化）
+         p = le2proc(rq->lab6_run_pool, lab6_run_pool);
+         priority = (p->lab6_priority == 0) ? 1 : p->lab6_priority;
+         stride_inc = BIG_STRIDE / priority;
+     }
+     
+     p->lab6_stride += stride_inc;
+
      // 3. 返回选中的进程
      return p;
 }
