@@ -121,15 +121,6 @@ case IRQ_S_TIMER:
 - 虚拟内存区域管理（`vma`结构）
 - 页面置换算法（如需要）
 
-### 编译验证
-
-完成代码填充后，执行：
-```bash
-make clean
-make
-```
-
-确保编译通过，无错误和警告。
 
 ---
 
@@ -899,7 +890,7 @@ cprintf("[STRIDE] Normalizing: min_stride=%u, proc_num=%u\n",
         min_stride, rq->proc_num);
 ```
 
-#### 5.4 测试方法
+#### 4.4 测试方法
 
 **模拟长时间运行**：
 ```c
