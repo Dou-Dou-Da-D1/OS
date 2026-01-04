@@ -11,7 +11,8 @@
 #include <error.h>
 #include <assert.h>
 #include <proc.h>
-// device info entry in vdev_list 
+// device info entry in vdev_list
+// vfs_dev_t 数据结构把 device 和 inode 联通起来 
 typedef struct {
     const char *devname;
     struct inode *devnode;
@@ -21,10 +22,10 @@ typedef struct {
 } vfs_dev_t;
 
 #define le2vdev(le, member)                         \
-    to_struct((le), vfs_dev_t, member)
+    to_struct((le), vfs_dev_t, member)  // 把 list_entry_t 转换为 vfs_dev_t
 
-static list_entry_t vdev_list;     // device info list in vfs layer
-static semaphore_t vdev_list_sem;
+static list_entry_t vdev_list;     // 设备双向链表，保存系统中所有设备的信息
+static semaphore_t vdev_list_sem;   // 互斥访问
 
 static void
 lock_vdev_list(void) {

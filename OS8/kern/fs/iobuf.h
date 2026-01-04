@@ -6,11 +6,12 @@
 /*
  * iobuf is a buffer Rd/Wr status record
  */
+ // 要写入设备的数据当前所在内存的位置和长度/从设备读取的数据需要存储到的位置
 struct iobuf {
-    void *io_base;     // the base addr of buffer (used for Rd/Wr)
-    off_t io_offset;   // current Rd/Wr position in buffer, will have been incremented by the amount transferred
-    size_t io_len;     // the length of buffer  (used for Rd/Wr)
-    size_t io_resid;   // current resident length need to Rd/Wr, will have been decremented by the amount transferred.
+    void *io_base;     // 缓冲区起始地址
+    off_t io_offset;   // io文件/设备偏移
+    size_t io_len;     // 缓冲区总长度
+    size_t io_resid;   // 剩余未传输字节数
 };
 
 #define iobuf_used(iob)                         ((size_t)((iob)->io_len - (iob)->io_resid))

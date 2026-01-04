@@ -26,19 +26,21 @@ struct iobuf;
  * vfs_open() and vfs_close(). Code above the VFS layer should not
  * need to worry about it.
  */
+
+// 负责把不同文件系统的特定索引节点信息统一封装起来，避免进程访问具体的文件系统
 struct inode {
-    union {
-        struct device __device_info;
-        struct sfs_inode __sfs_inode_info;
+    union {                                 //包含不同文件系统特定inode信息的union成员变量
+        struct device __device_info;        //设备文件系统
+        struct sfs_inode __sfs_inode_info;  
     } in_info;
     enum {
         inode_type_device_info = 0x1234,
         inode_type_sfs_inode_info,
-    } in_type;
-    int ref_count;
-    int open_count;
-    struct fs *in_fs;
-    const struct inode_ops *in_ops;
+    } in_type;                              //此inode所属的文件系统类型
+    int ref_count;                          //多少内核指针引用此inode
+    int open_count;                         //多少次文件打开此inode
+    struct fs *in_fs;                       //指向实现该 inode 的抽象文件系统
+    const struct inode_ops *in_ops;         //一组访问inode的函数指针
 };
 
 #define __in_type(type)                                             inode_type_##type##_info
@@ -166,6 +168,9 @@ void inode_kill(struct inode *node);
  *                      refers to. May destroy PATHNAME. Should increment
  *                      refcount on inode handed back.
  */
+
+
+//  抽象函数指针，表示对incode的各种操作，不同文件系统实现不同的操作逻辑
 struct inode_ops {
     unsigned long vop_magic;
     int (*vop_open)(struct inode *node, uint32_t open_flags);

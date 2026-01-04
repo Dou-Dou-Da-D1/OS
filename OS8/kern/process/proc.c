@@ -677,7 +677,7 @@ load_icode_read(int fd, void *buf, size_t len, off_t offset)
 static int
 load_icode(int fd, int argc, char **kargv)
 {
-    /* LAB8:EXERCISE2 YOUR CODE */
+    /* LAB8:EXERCISE2 2311828 2313540 */
     if (current->mm != NULL) {
         panic("load_icode: current->mm must be empty.\n");
     }
@@ -685,12 +685,12 @@ load_icode(int fd, int argc, char **kargv)
     int ret = -E_NO_MEM;
     struct mm_struct *mm;
     
-    // (1) create a new mm for current process
+    // (1) 为当前进程创建一个新的用户进程空间
     if ((mm = mm_create()) == NULL) {
         goto bad_mm;
     }
     
-    // (2) create a new PDT, and mm->pgdir = kernel virtual addr of PDT
+    // (2) 创建页目录表
     if (setup_pgdir(mm) != 0) {
         goto bad_pgdir_cleanup_mm;
     }
@@ -698,13 +698,13 @@ load_icode(int fd, int argc, char **kargv)
     // (3) copy TEXT/DATA/BSS parts in binary to memory space of process
     struct Page *page = NULL;
     
-    // (3.1) read raw data content in file and resolve elfhdr
+    // (3.1) 读取 ELF 头
     struct elfhdr __elf, *elf = &__elf;
     if ((ret = load_icode_read(fd, elf, sizeof(struct elfhdr), 0)) != 0) {
         goto bad_elf_cleanup_pgdir;
     }
     
-    // (3.2) check if this is a valid ELF file
+    // (3.2) 校验魔数
     if (elf->e_magic != ELF_MAGIC) {
         ret = -E_INVAL_ELF;
         goto bad_elf_cleanup_pgdir;
@@ -713,16 +713,18 @@ load_icode(int fd, int argc, char **kargv)
     struct proghdr __ph, *ph = &__ph;
     uint32_t vm_flags, perm, phnum;
     
+    // 遍历program headers
     for (phnum = 0; phnum < elf->e_phnum; phnum++) {
         // (3.2) read raw data content in file and resolve proghdr based on info in elfhdr
         off_t phoff = elf->e_phoff + sizeof(struct proghdr) * phnum;
         if ((ret = load_icode_read(fd, ph, sizeof(struct proghdr), phoff)) != 0) {
             goto bad_cleanup_mmap;
         }
-        
+        // 跳过非LOAD program header
         if (ph->p_type != ELF_PT_LOAD) {
             continue;
         }
+        // 确保文件大小不大于内存大小
         if (ph->p_filesz > ph->p_memsz) {
             ret = -E_INVAL_ELF;
             goto bad_cleanup_mmap;
@@ -731,7 +733,7 @@ load_icode(int fd, int argc, char **kargv)
             // continue;
         }
         
-        // (3.3) call mm_map to build vma related to TEXT/DATA
+        // (3.3) 把vm_flags转为页表位权限perm
         vm_flags = 0, perm = PTE_U | PTE_V;
         if (ph->p_flags & ELF_PF_X) vm_flags |= VM_EXEC;
         if (ph->p_flags & ELF_PF_W) vm_flags |= VM_WRITE;
@@ -740,36 +742,42 @@ load_icode(int fd, int argc, char **kargv)
         if (vm_flags & VM_WRITE) perm |= (PTE_W | PTE_R);
         if (vm_flags & VM_EXEC) perm |= PTE_X;
         
+        // 为段在mm中建立虚拟内存区（大小为p_memsz）
         if ((ret = mm_map(mm, ph->p_va, ph->p_memsz, vm_flags, NULL)) != 0) {
             goto bad_cleanup_mmap;
         }
         
-        // (3.4) call pgdir_alloc_page to allocate page for TEXT/DATA, read contents in file
+        // (3.4) 初始化文件内偏移
         off_t offset = ph->p_offset;
         size_t off, size;
+        // 段的虚地址起点                 // 起始页的页对齐地址
         uintptr_t start = ph->p_va, end, la = ROUNDDOWN(start, PGSIZE);
         
         ret = -E_NO_MEM;
         
+        // 仅文件中有数据的边界部分
         end = ph->p_va + ph->p_filesz;
         while (start < end) {
+            // 分配物理页并映射虚拟地址
             if ((page = pgdir_alloc_page(mm->pgdir, la, perm)) == NULL) {
                 ret = -E_NO_MEM;
                 goto bad_cleanup_mmap;
             }
+            // 计算页内偏移和本页需要读取的大小
             off = start - la, size = PGSIZE - off, la += PGSIZE;
             if (end < la) {
                 size -= la - end;
             }
-            // Use load_icode_read instead of memcpy
+            // 把文件里对应部分读取到分配页的内核可访问地址中
             if ((ret = load_icode_read(fd, page2kva(page) + off, size, offset)) != 0) {
                 goto bad_cleanup_mmap;
             }
             start += size, offset += size;
         }
         
-        // (3.5) call pgdir_alloc_page to allocate pages for BSS, memset zero in these pages
-        end = ph->p_va + ph->p_memsz;
+        // (3.5) BSS处理，filesz到memsz部分清0
+        end = ph->p_va + ph->p_memsz;  // 段在内存中应占总区间
+        // 文件内容在最后一个页没填满
         if (start < la) {
             if (start == end) {
                 continue;
@@ -782,6 +790,7 @@ load_icode(int fd, int argc, char **kargv)
             start += size;
             assert((end < la && start == end) || (end >= la && start == la));
         }
+        // 剩余的完整页面需要为BSS分配新页并清零
         while (start < end) {
             if ((page = pgdir_alloc_page(mm->pgdir, la, perm)) == NULL) {
                 ret = -E_NO_MEM;
@@ -799,7 +808,7 @@ load_icode(int fd, int argc, char **kargv)
     // Close the file
     sysfile_close(fd);
     
-    // (4) call mm_map to setup user stack, and put parameters into user stack
+    // (4) 建立用户栈的VMA和页表映射
     vm_flags = VM_READ | VM_WRITE | VM_STACK;
     if ((ret = mm_map(mm, USTACKTOP - USTACKSIZE, USTACKSIZE, vm_flags, NULL)) != 0) {
         goto bad_cleanup_mmap;
@@ -810,19 +819,20 @@ load_icode(int fd, int argc, char **kargv)
     assert(pgdir_alloc_page(mm->pgdir, USTACKTOP - 4 * PGSIZE, PTE_USER) != NULL);
     
     // (5) setup current process's mm, cr3, reset pgdir (using lsatp MACRO)
-    mm_count_inc(mm);
-    current->mm = mm;
-    current->pgdir = PADDR(mm->pgdir);
-    lsatp(PADDR(mm->pgdir));
+    mm_count_inc(mm);   // 增加mm的引用计数
+    current->mm = mm;   // 让当前进程指向新的mm
+    current->pgdir = PADDR(mm->pgdir);  // 存下页目录的物理地址
+    lsatp(PADDR(mm->pgdir));        // 新页表切换到cpu
     
-    // (6) setup uargc and uargv in user stacks
+    // (6) 在用户栈上放置 argc、argv
     uint32_t argv_size = 0, i;
     for (i = 0; i < argc; i++) {
-        argv_size += strnlen(kargv[i], EXEC_MAX_ARG_LEN + 1) + 1;
+        argv_size += strnlen(kargv[i], EXEC_MAX_ARG_LEN + 1) + 1;   // 计算所有 argv 字符串总长度 
     }
     
+    // 为存放字符串和指针数组预留空间
     uintptr_t stacktop = USTACKTOP - (argv_size / sizeof(long) + 1) * sizeof(long);
-    char **uargv = (char **)(stacktop - argc * sizeof(char *));
+    char **uargv = (char **)(stacktop - argc * sizeof(char *));     // 指向将放置在栈上的 char * 数组区域
     
     argv_size = 0;
     for (i = 0; i < argc; i++) {
@@ -830,10 +840,11 @@ load_icode(int fd, int argc, char **kargv)
         argv_size += strnlen(kargv[i], EXEC_MAX_ARG_LEN + 1) + 1;
     }
     
+    // argc 存在 uargv 之前的一个 int
     stacktop = (uintptr_t)uargv - sizeof(int);
     *(int *)stacktop = argc;
     
-    // (7) setup trapframe for user environment
+    // (7) 设置trapframe用户态返回点
     struct trapframe *tf = current->tf;
     uintptr_t sstatus = tf->status;
     memset(tf, 0, sizeof(struct trapframe));

@@ -19,6 +19,7 @@ static struct
  * cons_intr - called by device interrupt routines to feed input
  * characters into the circular console input buffer.
  * */
+ // 从底层读取函数 proc 循环取字符，非零字符写入环形缓冲区
 void cons_intr(int (*proc)(void))
 {
     int c;
@@ -43,8 +44,10 @@ void kbd_intr(void)
 }
 
 /* serial_proc_data - get data from serial port */
+// 字符读入缓冲区
 int serial_proc_data(void)
 {
+    // 读取串口字符
     int c = sbi_console_getchar();
     if (c < 0)
     {
@@ -60,10 +63,11 @@ int serial_proc_data(void)
 /* serial_intr - try to feed input characters from serial port */
 void serial_intr(void)
 {
-    cons_intr(serial_proc_data);
+    cons_intr(serial_proc_data);    // 将读到的字符写入环形缓冲
 }
 
 /* serial_putc - print character to serial port */
+// 向串口输出字符，特殊处理退格显示
 void serial_putc(int c)
 {
     if (c != '\b')
@@ -88,6 +92,7 @@ void cons_init(void)
 void cons_putc(int c)
 {
     bool intr_flag;
+    // 并发保护。避免中断并发破坏缓冲索引
     local_intr_save(intr_flag);
     {
         serial_putc(c);
@@ -99,6 +104,7 @@ void cons_putc(int c)
  * cons_getc - return the next input character from console,
  * or 0 if none waiting.
  * */
+// 从缓冲区读取字符
 int cons_getc(void)
 {
     int c = 0;

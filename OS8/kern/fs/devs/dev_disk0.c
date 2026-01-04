@@ -10,11 +10,11 @@
 #include <error.h>
 #include <assert.h>
 
-#define DISK0_BLKSIZE                   PGSIZE
-#define DISK0_BUFSIZE                   (4 * DISK0_BLKSIZE)
-#define DISK0_BLK_NSECT                 (DISK0_BLKSIZE / SECTSIZE)
+#define DISK0_BLKSIZE                   PGSIZE                          // 磁盘块大小设置为页大小
+#define DISK0_BUFSIZE                   (4 * DISK0_BLKSIZE)             // 磁盘缓冲区大小设置为4个磁盘块
+#define DISK0_BLK_NSECT                 (DISK0_BLKSIZE / SECTSIZE)      // 每个磁盘块包含的扇区数
 
-static char *disk0_buffer;
+static char *disk0_buffer;                     // 磁盘0的缓冲区 
 static semaphore_t disk0_sem;
 
 static void
@@ -37,6 +37,7 @@ disk0_close(struct device *dev) {
     return 0;
 }
 
+// blkno起始块号，nblks要处理的块数
 static void
 disk0_read_blks_nolock(uint32_t blkno, uint32_t nblks) {
     int ret;
@@ -57,6 +58,7 @@ disk0_write_blks_nolock(uint32_t blkno, uint32_t nblks) {
     }
 }
 
+// 检查io接口
 static int
 disk0_io(struct device *dev, struct iobuf *iob, bool write) {
     off_t offset = iob->io_offset;
@@ -64,12 +66,12 @@ disk0_io(struct device *dev, struct iobuf *iob, bool write) {
     uint32_t blkno = offset / DISK0_BLKSIZE;
     uint32_t nblks = resid / DISK0_BLKSIZE;
 
-    /* don't allow I/O that isn't block-aligned */
+    /* don't allow I/O that isn't block-aligned */ // 块对齐
     if ((offset % DISK0_BLKSIZE) != 0 || (resid % DISK0_BLKSIZE) != 0) {
         return -E_INVAL;
     }
 
-    /* don't allow I/O past the end of disk0 */
+    /* don't allow I/O past the end of disk0 */ // 不允许越界
     if (blkno + nblks > dev->d_blocks) {
         return -E_INVAL;
     }
@@ -81,10 +83,10 @@ disk0_io(struct device *dev, struct iobuf *iob, bool write) {
 
     lock_disk0();
     while (resid != 0) {
-        size_t copied, alen = DISK0_BUFSIZE;
+        size_t copied, alen = DISK0_BUFSIZE;// 临时缓存容量
         if (write) {
-            iobuf_move(iob, disk0_buffer, alen, 0, &copied);
-            assert(copied != 0 && copied <= resid && copied % DISK0_BLKSIZE == 0);
+            iobuf_move(iob, disk0_buffer, alen, 0, &copied);    // 把要写的数据从 iob 拷到 disk0_buffer
+            assert(copied != 0 && copied <= resid && copied % DISK0_BLKSIZE == 0);  // copied 表示实际搬运字节数，resid 表示剩余多少字节需要传输
             nblks = copied / DISK0_BLKSIZE;
             disk0_write_blks_nolock(blkno, nblks);
         }
@@ -94,7 +96,7 @@ disk0_io(struct device *dev, struct iobuf *iob, bool write) {
             }
             nblks = alen / DISK0_BLKSIZE;
             disk0_read_blks_nolock(blkno, nblks);
-            iobuf_move(iob, disk0_buffer, alen, 1, &copied);
+            iobuf_move(iob, disk0_buffer, alen, 1, &copied);    // 把读到的数据从 disk0_buffer 拷到 iob
             assert(copied == alen && copied % DISK0_BLKSIZE == 0);
         }
         resid -= copied, blkno += nblks;

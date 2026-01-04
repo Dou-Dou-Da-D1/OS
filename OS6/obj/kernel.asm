@@ -10283,7 +10283,7 @@ ffffffffc020512c:	8082                	ret
 ffffffffc020512e <RR_pick_next>:
     return list->next == list;
 ffffffffc020512e:	651c                	ld	a5,8(a0)
-/*
+    pick_next选取队列头的表项，用le2proc函数获得对应的进程控制块
  */
 static struct proc_struct *
 RR_pick_next(struct run_queue *rq)
@@ -10305,7 +10305,7 @@ ffffffffc020513e:	51e53503          	ld	a0,1310(a0) # ffffffffc02b5658 <idleproc
 ffffffffc0205142:	8082                	ret
 
 ffffffffc0205144 <RR_proc_tick>:
-/*
+    proc_tick函数在每一次时钟中断调用，减小当前进程时间片。
  */
 static void
 RR_proc_tick(struct run_queue *rq, struct proc_struct *proc)
@@ -10325,6 +10325,7 @@ ffffffffc0205156:	00f05563          	blez	a5,ffffffffc0205160 <RR_proc_tick+0x1c
 ffffffffc020515a:	37fd                	addiw	a5,a5,-1
 ffffffffc020515c:	12f5a023          	sw	a5,288(a1)
     }
+    // 当时间片减少为0时，便把当前进程设置为可调度。
     if (proc->time_slice == 0) {
 ffffffffc0205160:	e399                	bnez	a5,ffffffffc0205166 <RR_proc_tick+0x22>
         proc->need_resched = 1;
@@ -10342,9 +10343,9 @@ ffffffffc020516e:	02a79463          	bne	a5,a0,ffffffffc0205196 <RR_dequeue+0x2e
     __list_del(listelm->prev, listelm->next);
 ffffffffc0205172:	1105b503          	ld	a0,272(a1)
 ffffffffc0205176:	1185b603          	ld	a2,280(a1)
-    rq->proc_num--;
+    rq->proc_num--;     // 更新rq中进程数目
 ffffffffc020517a:	4b98                	lw	a4,16(a5)
-    list_del_init(&proc->run_link);
+    list_del_init(&proc->run_link);     // 从队列中移除该进程
 ffffffffc020517c:	11058693          	addi	a3,a1,272
     prev->next = next;
 ffffffffc0205180:	e510                	sd	a2,8(a0)
@@ -10352,7 +10353,7 @@ ffffffffc0205180:	e510                	sd	a2,8(a0)
 ffffffffc0205182:	e208                	sd	a0,0(a2)
     proc->rq = NULL;
 ffffffffc0205184:	1005b423          	sd	zero,264(a1)
-    rq->proc_num--;
+    rq->proc_num--;     // 更新rq中进程数目
 ffffffffc0205188:	377d                	addiw	a4,a4,-1
     elm->prev = elm->next = elm;
 ffffffffc020518a:	10d5bc23          	sd	a3,280(a1)
@@ -10366,7 +10367,7 @@ ffffffffc0205198:	00002697          	auipc	a3,0x2
 ffffffffc020519c:	3f068693          	addi	a3,a3,1008 # ffffffffc0207588 <etext+0x1be4>
 ffffffffc02051a0:	00001617          	auipc	a2,0x1
 ffffffffc02051a4:	1f060613          	addi	a2,a2,496 # ffffffffc0206390 <etext+0x9ec>
-ffffffffc02051a8:	03300593          	li	a1,51
+ffffffffc02051a8:	03400593          	li	a1,52
 ffffffffc02051ac:	00002517          	auipc	a0,0x2
 ffffffffc02051b0:	3f450513          	addi	a0,a0,1012 # ffffffffc02075a0 <etext+0x1bfc>
 {

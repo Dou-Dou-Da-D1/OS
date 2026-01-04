@@ -76,6 +76,7 @@ vfs_set_bootfs(char *fsname) {
 }
 
 // vfs_get_bootfs - get the inode of bootfs
+// 返回引导文件系统（bootfs）根节点的 inode 给调用者
 int
 vfs_get_bootfs(struct inode **node_store) {
     struct inode *node = NULL;

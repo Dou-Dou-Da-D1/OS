@@ -15,8 +15,8 @@ struct device {
     size_t d_blocksize;
     int (*d_open)(struct device *dev, uint32_t open_flags);
     int (*d_close)(struct device *dev);
-    int (*d_io)(struct device *dev, struct iobuf *iob, bool write);
-    int (*d_ioctl)(struct device *dev, int op, void *data);
+    int (*d_io)(struct device *dev, struct iobuf *iob, bool write);     // write参数是true/false决定是读还是写
+    int (*d_ioctl)(struct device *dev, int op, void *data);             // input output control
 };
 
 #define dop_open(dev, open_flags)           ((dev)->d_open(dev, open_flags))

@@ -11,6 +11,7 @@
 int
 vfs_open(char *path, uint32_t open_flags, struct inode **node_store) {
     bool can_write = 0;
+    // 解析open_flags并做合法性检查
     switch (open_flags & O_ACCMODE) {
     case O_RDONLY:
         break;
@@ -22,6 +23,7 @@ vfs_open(char *path, uint32_t open_flags, struct inode **node_store) {
         return -E_INVAL;
     }
 
+    // 把文件打开并截断为0，即清空文件内容
     if (open_flags & O_TRUNC) {
         if (!can_write) {
             return -E_INVAL;
@@ -30,33 +32,39 @@ vfs_open(char *path, uint32_t open_flags, struct inode **node_store) {
 
     int ret; 
     struct inode *node;
-    bool excl = (open_flags & O_EXCL) != 0;
+    bool excl = (open_flags & O_EXCL) != 0;    // 互斥创建
     bool create = (open_flags & O_CREAT) != 0;
-    ret = vfs_lookup(path, &node);
+    ret = vfs_lookup(path, &node);          // vfs_lookup根据路径构造inode
 
+    //要打开的文件还不存在，可能出错，也可能需要创建新文件
     if (ret != 0) {
+        // 文件不存在，需要创建文件
         if (ret == -16 && (create)) {
             char *name;
             struct inode *dir;
+            // 找到父目录和名字
             if ((ret = vfs_lookup_parent(path, &dir, &name)) != 0) {
                 return ret;
             }
+            // 创建新文件
             ret = vop_create(dir, name, excl, &node);
         } else return ret;
-    } else if (excl && create) {
+    }// 文件存在，要求互斥创建
+     else if (excl && create) {
         return -E_EXISTS;
     }
     assert(node != NULL);
     
     if ((ret = vop_open(node, open_flags)) != 0) {
-        vop_ref_dec(node);
-        return ret;
+        vop_ref_dec(node);      // 减去引用
+        return ret;             
     }
 
     vop_open_inc(node);
     if (open_flags & O_TRUNC || create) {
+        // 文件截断为0长度
         if ((ret = vop_truncate(node, 0)) != 0) {
-            vop_open_dec(node);
+            vop_open_dec(node);     // 撤销打开计数
             vop_ref_dec(node);
             return ret;
         }

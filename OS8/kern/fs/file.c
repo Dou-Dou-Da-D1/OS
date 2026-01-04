@@ -153,9 +153,11 @@ file_testfd(int fd, bool readable, bool writable) {
 }
 
 // open file
+// 在内核态打开或创建一个文件
 int
 file_open(char *path, uint32_t open_flags) {
     bool readable = 0, writable = 0;
+    // openflags描述打开文件时的访问模式和额外行为
     switch (open_flags & O_ACCMODE) {
     case O_RDONLY: readable = 1; break;
     case O_WRONLY: writable = 1; break;
@@ -167,10 +169,12 @@ file_open(char *path, uint32_t open_flags) {
     }
     int ret;
     struct file *file;
+    // 在当前进程的打开文件表中分配一个文件项
     if ((ret = fd_array_alloc(NO_FD, &file)) != 0) {
         return ret;
     }
     struct inode *node;
+    // vfs层
     if ((ret = vfs_open(path, open_flags, &node)) != 0) {
         fd_array_free(file);
         return ret;
@@ -178,17 +182,19 @@ file_open(char *path, uint32_t open_flags) {
     file->pos = 0;
     if (open_flags & O_APPEND) {
         struct stat __stat, *stat = &__stat;
+        // 取得当前文件大小
         if ((ret = vop_fstat(node, stat)) != 0) {
             vfs_close(node);
             fd_array_free(file);
             return ret;
         }
-        file->pos = stat->st_size;
+        file->pos = stat->st_size;  //追加写模式，设置当前位置为文件尾
     }
+    // 绑定状态并激活文件项
     file->node = node;
     file->readable = readable;
     file->writable = writable;
-    fd_array_open(file);
+    fd_array_open(file);    // 设置该文件的状态为“打开”
     return file->fd;
 }
 
@@ -209,19 +215,23 @@ int
 file_read(int fd, void *base, size_t len, size_t *copied_store) {
     int ret;
     struct file *file;
-    *copied_store = 0;
+    *copied_store = 0;      // 已读字节数
     if ((ret = fd2file(fd, &file)) != 0) {
         return ret;
     }
+    // 检查是否有读权限
     if (!file->readable) {
         return -E_INVAL;
     }
-    fd_array_acquire(file);
+    fd_array_acquire(file);     // 增加文件项的局部引用/打开计数
 
+    // 构造iobuf
     struct iobuf __iob, *iob = iobuf_init(&__iob, base, len, file->pos);
+    // 调用vop_read读取数据
     ret = vop_read(file->node, iob);
 
     size_t copied = iobuf_used(iob);
+    // 更新文件当前位置
     if (file->status == FD_OPENED) {
         file->pos += copied;
     }

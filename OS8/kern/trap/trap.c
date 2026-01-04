@@ -94,6 +94,7 @@ void print_regs(struct pushregs *gpr)
 }
 
 extern struct mm_struct *check_mm_struct;
+extern void dev_stdin_write(char c);
 
 void interrupt_handler(struct trapframe *tf)
 {
@@ -115,6 +116,7 @@ void interrupt_handler(struct trapframe *tf)
     case IRQ_U_TIMER:
         cprintf("User software interrupt\n");
         break;
+    // 串口轮询
     case IRQ_S_TIMER:
         // "All bits besides SSIP and USIP in the sip register are
         // read-only." -- privileged spec1.9.1, 4.1.4, p59
@@ -123,6 +125,7 @@ void interrupt_handler(struct trapframe *tf)
         // clear_csr(sip, SIP_STIP);
         clock_set_next_event();
         serial_intr();
+        
         ++ticks;
         run_timer_list();
         break;

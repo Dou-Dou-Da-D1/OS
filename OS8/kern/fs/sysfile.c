@@ -38,10 +38,12 @@ failed_cleanup:
 }
 
 /* sysfile_open - open file */
+// 经过syscall.c的处理之后，进入内核态，执行sysfile_open()函数
 int
 sysfile_open(const char *__path, uint32_t open_flags) {
     int ret;
     char *path;
+    // 把位于用户空间的字符串__path拷贝到内核空间中的字符串path
     if ((ret = copy_path(&path, __path)) != 0) {
         return ret;
     }
@@ -74,6 +76,7 @@ sysfile_read(int fd, void *base, size_t len) {
     int ret = 0;
     size_t copied = 0, alen;
     while (len != 0) {
+        // 把要读的长度切成不超过缓冲区大小的块
         if ((alen = IOBUF_SIZE) > len) {
             alen = len;
         }
@@ -81,6 +84,8 @@ sysfile_read(int fd, void *base, size_t len) {
         if (alen != 0) {
             lock_mm(mm);
             {
+                // 把 buffer 的 alen 字节拷到用户地址 base
+                // 把内核读到的数据交给用户进程
                 if (copy_to_user(mm, base, buffer, alen)) {
                     assert(len >= alen);
                     base += alen, len -= alen, copied += alen;
@@ -111,6 +116,7 @@ sysfile_write(int fd, void *base, size_t len) {
     if (len == 0) {
         return 0;
     }
+    // 检查fd是否合法且可写
     if (!file_testfd(fd, 0, 1)) {
         return -E_INVAL;
     }

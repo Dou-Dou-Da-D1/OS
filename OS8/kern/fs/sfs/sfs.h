@@ -37,43 +37,47 @@
 /*
  * On-disk superblock
  */
+ // 文件系统控制块 包含了关于文件系统的所有关键参数
 struct sfs_super {
-    uint32_t magic;                                 /* magic number, should be SFS_MAGIC */
-    uint32_t blocks;                                /* # of blocks in fs */
-    uint32_t unused_blocks;                         /* # of unused blocks in fs */
-    char info[SFS_MAX_INFO_LEN + 1];                /* infomation for sfs  */
+    uint32_t magic;                                 // 成员变量魔数，检查磁盘镜像是否是合法的SFS img
+    uint32_t blocks;                                // SFS 中所有 block 的数量，即 img 的大小
+    uint32_t unused_blocks;                         // SFS 中未使用的 block 数量
+    char info[SFS_MAX_INFO_LEN + 1];                // 文本描述信息
 };
 
 /* inode (on disk) */
+// 磁盘索引节点
 struct sfs_disk_inode {
-    uint32_t size;                                  /* size of the file (in bytes) */
-    uint16_t type;                                  /* one of SYS_TYPE_* above */
-    uint16_t nlinks;                                /* # of hard links to this file */
-    uint32_t blocks;                                /* # of blocks */
-    uint32_t direct[SFS_NDIRECT];                   /* direct blocks */
-    uint32_t indirect;                              /* indirect blocks */
+    uint32_t size;                                  // 文件大小
+    uint16_t type;                                  // 文件类型
+    uint16_t nlinks;                                // 多少个目录项引用此inode
+    uint32_t blocks;                                // 该文件占用的数据块数量
+    uint32_t direct[SFS_NDIRECT];                   // 此inode的直接数据块索引值
+    uint32_t indirect;                              // 此inode的一级间接数据块索引值
 //    uint32_t db_indirect;                           /* double indirect blocks */
 //   unused
 };
 
 /* file entry (on disk) */
+// 目录项
 struct sfs_disk_entry {
-    uint32_t ino;                                   /* inode number */
-    char name[SFS_MAX_FNAME_LEN + 1];               /* file name */
+    uint32_t ino;                                   // 索引节点所占数据块索引值
+    char name[SFS_MAX_FNAME_LEN + 1];               // 文件名
 };
 
 #define sfs_dentry_size                             \
     sizeof(((struct sfs_disk_entry *)0)->name)
 
 /* inode for sfs */
+// 内存索引节点
 struct sfs_inode {
-    struct sfs_disk_inode *din;                     /* on-disk inode */
-    uint32_t ino;                                   /* inode number */
-    bool dirty;                                     /* true if inode modified */
-    int reclaim_count;                              /* kill inode if it hits zero */
-    semaphore_t sem;                                /* semaphore for din */
-    list_entry_t inode_link;                        /* entry for linked-list in sfs_fs */
-    list_entry_t hash_link;                         /* entry for hash linked-list in sfs_fs */
+    struct sfs_disk_inode *din;                     // 硬盘inode指针
+    uint32_t ino;                                   // inode编号（磁盘块号）
+    bool dirty;                                     // 被修改但未写回磁盘设为true
+    int reclaim_count;                              // 回收计数，生命周期控制：0且不被引用则可释放
+    semaphore_t sem;                                // 保护din和内存inode的并发访问
+    list_entry_t inode_link;                        // 把当前inode插入到sfs_fs的inode链表中
+    list_entry_t hash_link;                         // 把当前inode插入到sfs_fs的hash链表中，快速查找
 };
 
 #define le2sin(le, member)                          \

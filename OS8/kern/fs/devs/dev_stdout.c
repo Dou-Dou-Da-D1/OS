@@ -23,9 +23,10 @@ stdout_close(struct device *dev) {
 
 static int
 stdout_io(struct device *dev, struct iobuf *iob, bool write) {
+    //对应struct device 的d_io()
     if (write) {
-        char *data = iob->io_base;
-        for (; iob->io_resid != 0; iob->io_resid --) {
+        char *data = iob->io_base;      // 取出要写的数据指针
+        for (; iob->io_resid != 0; iob->io_resid --) {  //逐个字符输出
             cputchar(*data ++);
         }
         return 0;

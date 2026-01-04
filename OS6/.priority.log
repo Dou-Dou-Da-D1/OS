@@ -55,16 +55,16 @@ set priority to 2
 set priority to 3
 set priority to 4
 set priority to 5
-child pid 5, acc 908000, time 2010
-child pid 6, acc 904000, time 2010
-child pid 7, acc 908000, time 2010
-child pid 3, acc 956000, time 2010
-child pid 4, acc 976000, time 2010
-main: pid 0, acc 956000, time 2010
-main: pid 4, acc 976000, time 2010
-main: pid 5, acc 908000, time 2010
-main: pid 6, acc 904000, time 2010
-main: pid 7, acc 908000, time 2010
+child pid 5, acc 800000, time 2010
+child pid 6, acc 784000, time 2010
+child pid 7, acc 764000, time 2010
+child pid 3, acc 804000, time 2010
+child pid 4, acc 828000, time 2010
+main: pid 0, acc 804000, time 2010
+main: pid 4, acc 828000, time 2010
+main: pid 5, acc 800000, time 2010
+main: pid 6, acc 784000, time 2010
+main: pid 7, acc 764000, time 2010
 main: wait pids over
 sched result: 1 1 1 1 1
 all user-mode processes have quit.
